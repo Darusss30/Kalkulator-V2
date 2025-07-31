@@ -1289,7 +1289,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
             
             {/* Beton Workers */}
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-3">👷 Tenaga Kerja Beton</h4>
+              <h4 className="font-semibold text-blue-900 mb-3">Tenaga Kerja Beton</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1352,7 +1352,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
             {/* Bekisting Workers */}
             <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-              <h4 className="font-semibold text-yellow-900 mb-3">🔨 Tenaga Kerja Bekisting</h4>
+              <h4 className="font-semibold text-yellow-900 mb-3">Tenaga Kerja Bekisting</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1415,7 +1415,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
             {/* Besi Workers */}
             <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-              <h4 className="font-semibold text-green-900 mb-3">⚙️ Tenaga Kerja Besi</h4>
+              <h4 className="font-semibold text-green-900 mb-3">Tenaga Kerja Besi</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1484,7 +1484,6 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
             {/* Beton Materials */}
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
               <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
-                <Package className="w-4 h-4 mr-2" />
                 Material Beton
               </h4>
               
@@ -1543,7 +1542,6 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
             {/* Bekisting Materials */}
             <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
               <h4 className="font-semibold text-yellow-900 mb-3 flex items-center">
-                <Package className="w-4 h-4 mr-2" />
                 Material Bekisting
               </h4>
               
@@ -1602,7 +1600,6 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
             {/* Besi Materials */}
             <div className="bg-green-50 p-4 rounded-lg border border-green-200">
               <h4 className="font-semibold text-green-900 mb-3 flex items-center">
-                <Package className="w-4 h-4 mr-2" />
                 Material Besi
               </h4>
               

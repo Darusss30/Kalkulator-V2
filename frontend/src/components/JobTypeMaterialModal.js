@@ -277,26 +277,6 @@ const JobTypeMaterialModal = ({
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <p className="text-xs text-blue-700">
-                        💡 <strong>Catatan:</strong> Faktor pemborosan akan dihitung otomatis oleh kalkulator berdasarkan jenis material dan kondisi proyek. 
-                        Biaya di atas adalah kebutuhan dasar tanpa pemborosan.
-                      </p>
-                    </div>
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <p className="text-xs text-green-700">
-                        🎯 <strong>Material Utama:</strong> Material yang dicentang sebagai "Material Utama" akan otomatis dimuat di kalkulator. 
-                        Material lainnya dapat ditambahkan secara manual sesuai kebutuhan.
-                      </p>
-                    </div>
-                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <p className="text-xs text-yellow-700">
-                        ⚙️ <strong>Opsi Kalkulator:</strong> User dapat memilih "Gunakan material default" untuk menggunakan material sistem + material utama ini, 
-                        atau menonaktifkannya untuk hanya menggunakan material yang dipilih manual.
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
