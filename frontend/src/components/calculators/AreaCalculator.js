@@ -1,41 +1,26 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Calculator,
-  Users,
   Package,
-  DollarSign,
-  TrendingUp,
   Save,
   Plus,
-  Minus,
   X,
   Search,
   CheckCircle,
   Square,
   Triangle,
   Circle,
+  Hexagon,
+  Diamond,
   Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQuery } from 'react-query';
+import apiService from '../../services/api';
 
 const AreaCalculator = ({ jobType, onSave }) => {
   const [formData, setFormData] = useState({
-    shape: 'rectangle',
-    // Rectangle/Square
-    length: '',
-    width: '',
-    // Triangle
-    base: '',
-    height: '',
-    // Circle
-    radius: '',
-    diameter: '',
-    // Trapezoid
-    top_width: '',
-    bottom_width: '',
-    trapezoid_height: '',
-    volume: '',
+    area: '',
     productivity: '',
     profit_percentage: '20',
     waste_factor: '5',
@@ -45,66 +30,160 @@ const AreaCalculator = ({ jobType, onSave }) => {
     project_name: ''
   });
 
+  // Shape selection state
+  const [selectedShape, setSelectedShape] = useState('rectangle');
+  const [useManualArea, setUseManualArea] = useState(false);
+  
+  // Dimension states for different shapes
+  const [dimensions, setDimensions] = useState({
+    // Rectangle
+    length: '',
+    width: '',
+    // Square
+    side: '',
+    // Triangle
+    base: '',
+    height: '',
+    // Circle
+    radius: '',
+    // Trapezoid
+    topBase: '',
+    bottomBase: '',
+    trapezoidHeight: '',
+    // Parallelogram
+    parallelogramBase: '',
+    parallelogramHeight: ''
+  });
+
   const [materials, setMaterials] = useState([]);
   const [showMaterialSelector, setShowMaterialSelector] = useState(false);
   const [availableMaterials, setAvailableMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
-  const [useManualVolume, setUseManualVolume] = useState(false);
 
   // Fixed rates as specified
   const TUKANG_RATE = 150000;
   const PEKERJA_RATE = 135000;
-
-  // Shape options
-  const shapeOptions = [
+  
+  // Available shapes for area calculation
+  const shapes = [
     {
       id: 'rectangle',
       name: 'Persegi Panjang',
-      icon: Square,
-      fields: ['length', 'width'],
       formula: 'panjang × lebar',
-      calculate: (data) => parseFloat(data.length || 0) * parseFloat(data.width || 0)
+      icon: Square
+    },
+    {
+      id: 'square',
+      name: 'Persegi',
+      formula: 'sisi × sisi',
+      icon: Square
     },
     {
       id: 'triangle',
       name: 'Segitiga',
-      icon: Triangle,
-      fields: ['base', 'height'],
       formula: '½ × alas × tinggi',
-      calculate: (data) => 0.5 * parseFloat(data.base || 0) * parseFloat(data.height || 0)
+      icon: Triangle
     },
     {
       id: 'circle',
       name: 'Lingkaran',
-      icon: Circle,
-      fields: ['radius'],
       formula: 'π × r²',
-      calculate: (data) => Math.PI * Math.pow(parseFloat(data.radius || 0), 2)
+      icon: Circle
     },
     {
       id: 'trapezoid',
       name: 'Trapesium',
-      icon: Square,
-      fields: ['top_width', 'bottom_width', 'trapezoid_height'],
       formula: '½ × (a + b) × tinggi',
-      calculate: (data) => 0.5 * (parseFloat(data.top_width || 0) + parseFloat(data.bottom_width || 0)) * parseFloat(data.trapezoid_height || 0)
+      icon: Hexagon
+    },
+    {
+      id: 'parallelogram',
+      name: 'Jajar Genjang',
+      formula: 'alas × tinggi',
+      icon: Diamond
     }
   ];
 
-  // Load available materials (mock data for now)
-  useEffect(() => {
-    // This would normally fetch from API
-    setAvailableMaterials([
-      { id: 1, name: 'Semen Portland', unit: 'sak', price: 65000, supplier: 'Toko Bangunan A' },
-      { id: 2, name: 'Pasir Halus', unit: 'm3', price: 350000, supplier: 'Supplier Pasir B' },
-      { id: 3, name: 'Kerikil', unit: 'm3', price: 400000, supplier: 'Supplier Batu C' },
-      { id: 4, name: 'Besi Beton 10mm', unit: 'batang', price: 85000, supplier: 'Toko Besi D' },
-      { id: 5, name: 'Kawat Bendrat', unit: 'kg', price: 25000, supplier: 'Toko Bangunan A' }
-    ]);
-  }, []);
+  // Fetch materials from database
+  const {
+    data: materialsData,
+    isLoading: isLoadingMaterials,
+    error: materialsError
+  } = useQuery(
+    ['materials', { limit: 100 }],
+    () => apiService.materials.getMaterials({ limit: 100 }),
+    {
+      onSuccess: (data) => {
+        setAvailableMaterials(data?.data?.materials || []);
+      },
+      onError: (error) => {
+        console.error('Failed to fetch materials:', error);
+        toast.error('Gagal memuat data material');
+        // Fallback to empty array
+        setAvailableMaterials([]);
+      }
+    }
+  );
+
+  // Fetch job-type specific materials if jobType is available
+  const {
+    data: jobTypeMaterialsData,
+    isLoading: isLoadingJobTypeMaterials
+  } = useQuery(
+    ['jobTypeMaterials', jobType?.id],
+    () => apiService.materials.getMaterialsByJobType(jobType.id),
+    {
+      enabled: Boolean(jobType?.id),
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
+      staleTime: 0, // Always fetch fresh data
+      cacheTime: 0, // Don't cache to ensure fresh data
+      onSuccess: (data) => {
+        const jobTypeMaterials = data?.data?.materials || [];
+        if (jobTypeMaterials.length > 0) {
+          // Use job-type specific materials if available
+          setAvailableMaterials(jobTypeMaterials);
+          
+          // Check if materials should be auto-loaded or user should choose
+          const primaryMaterials = jobTypeMaterials.filter(material => material.is_primary);
+          
+          if (primaryMaterials.length > 0) {
+            // Auto-load only primary materials (essential materials like cement, sand)
+            const autoLoadedMaterials = primaryMaterials.map(material => ({
+              ...material,
+              quantity: material.quantity_per_unit // Use exact configured quantity
+            }));
+            setMaterials(autoLoadedMaterials);
+            
+            toast.success(`${primaryMaterials.length} material utama otomatis dimuat untuk ${jobType.name}`);
+            
+            // Show info about optional materials
+            const optionalMaterials = jobTypeMaterials.filter(material => !material.is_primary);
+            if (optionalMaterials.length > 0) {
+              toast(`${optionalMaterials.length} material pilihan tersedia. Klik "Tambah Material" untuk memilih.`, {
+                icon: 'ℹ️',
+                duration: 4000,
+              });
+            }
+          } else {
+            // If no primary materials, show info that user needs to choose
+            toast(`${jobTypeMaterials.length} material tersedia untuk ${jobType.name}. Pilih material yang akan digunakan.`, {
+              icon: 'ℹ️',
+              duration: 4000,
+            });
+          }
+        }
+      },
+      onError: (error) => {
+        console.error('Failed to fetch job type materials:', error);
+        // Don't show error toast for job type materials, fall back to general materials
+      }
+    }
+  );
 
   // Set productivity from jobType when component mounts or jobType changes
   useEffect(() => {
@@ -130,23 +209,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
       };
     }
   }, [showMaterialSelector]);
-
-  // Calculate area when shape or dimensions change (only if not using manual volume)
-  useEffect(() => {
-    if (!useManualVolume) {
-      const selectedShape = shapeOptions.find(s => s.id === formData.shape);
-      if (selectedShape) {
-        const calculatedArea = selectedShape.calculate(formData);
-        if (calculatedArea > 0) {
-          setFormData(prev => ({
-            ...prev,
-            volume: calculatedArea.toFixed(2)
-          }));
-        }
-      }
-    }
-  }, [formData.shape, formData.length, formData.width, formData.base, formData.height, formData.radius, formData.diameter, formData.top_width, formData.bottom_width, formData.trapezoid_height, useManualVolume]);
-
+  
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -162,10 +225,91 @@ const AreaCalculator = ({ jobType, onSave }) => {
     e.target.select();
   };
 
+  // Calculate area based on selected shape and dimensions
+  const calculateArea = useCallback(() => {
+    if (useManualArea) {
+      return parseFloat(formData.area) || 0;
+    }
+    
+    const {
+      length, width, side, base, height, radius,
+      topBase, bottomBase, trapezoidHeight,
+      parallelogramBase, parallelogramHeight
+    } = dimensions;
+    
+    switch (selectedShape) {
+      case 'rectangle':
+        return (parseFloat(length) || 0) * (parseFloat(width) || 0);
+      
+      case 'square':
+        return Math.pow(parseFloat(side) || 0, 2);
+      
+      case 'triangle':
+        return 0.5 * (parseFloat(base) || 0) * (parseFloat(height) || 0);
+      
+      case 'circle':
+        return Math.PI * Math.pow(parseFloat(radius) || 0, 2);
+      
+      case 'trapezoid':
+        return 0.5 * ((parseFloat(topBase) || 0) + (parseFloat(bottomBase) || 0)) * (parseFloat(trapezoidHeight) || 0);
+      
+      case 'parallelogram':
+        return (parseFloat(parallelogramBase) || 0) * (parseFloat(parallelogramHeight) || 0);
+      
+      default:
+        return 0;
+    }
+  }, [useManualArea, formData.area, dimensions, selectedShape]);
+  
+  // Update calculated area when dimensions change
+  useEffect(() => {
+    const area = calculateArea();
+    setFormData(prev => ({ ...prev, area: area.toString() }));
+  }, [dimensions, selectedShape, useManualArea, calculateArea]);
+  
+  // Handle dimension input changes
+  const handleDimensionChange = (field, value) => {
+    setDimensions(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const toggleMaterialSelection = (material) => {
+    setSelectedMaterials(prev => {
+      const isSelected = prev.some(m => m.id === material.id);
+      if (isSelected) {
+        return prev.filter(m => m.id !== material.id);
+      } else {
+        return [...prev, material];
+      }
+    });
+  };
+
+  const addSelectedMaterials = () => {
+    const newMaterials = selectedMaterials.filter(material => 
+      !materials.some(m => m.id === material.id)
+    ).map(material => ({
+      ...material,
+      quantity: material.quantity_per_unit || 1
+    }));
+    
+    setMaterials(prev => [...prev, ...newMaterials]);
+    setSelectedMaterials([]);
+    setShowMaterialSelector(false);
+    setMaterialSearch('');
+    
+    if (newMaterials.length > 0) {
+      toast.success(`${newMaterials.length} material berhasil ditambahkan`);
+    }
+  };
+
   const addMaterial = (material) => {
     const isAlreadyAdded = materials.some(m => m.id === material.id);
     if (!isAlreadyAdded) {
-      setMaterials(prev => [...prev, { ...material, quantity: 1 }]);
+      // Use configured quantity if available, otherwise default to 1
+      const defaultQuantity = material.quantity_per_unit || 1;
+      setMaterials(prev => [...prev, { ...material, quantity: defaultQuantity }]);
     }
     setShowMaterialSelector(false);
     setMaterialSearch('');
@@ -183,22 +327,9 @@ const AreaCalculator = ({ jobType, onSave }) => {
 
   const validateForm = () => {
     const newErrors = {};
-    const selectedShape = shapeOptions.find(s => s.id === formData.shape);
 
-    // Validate volume (either from dimensions or manual input)
-    if (!formData.volume || parseFloat(formData.volume) <= 0) {
-      newErrors.volume = 'Volume harus diisi dan lebih dari 0';
-    }
-
-    // Validate shape-specific fields only if not using manual volume
-    if (!useManualVolume) {
-      if (selectedShape) {
-        selectedShape.fields.forEach(field => {
-          if (!formData[field] || parseFloat(formData[field]) <= 0) {
-            newErrors[field] = `${getFieldLabel(field)} harus diisi dan lebih dari 0`;
-          }
-        });
-      }
+    if (!formData.area || parseFloat(formData.area) <= 0) {
+      newErrors.area = 'Luas harus diisi dan lebih dari 0';
     }
 
     if (!formData.productivity || parseFloat(formData.productivity) <= 0) {
@@ -225,6 +356,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
       newErrors.workers = 'Minimal harus ada 1 tukang atau 1 pekerja';
     }
 
+    // Validate worker ratio display
     if (!formData.worker_ratio_display) {
       newErrors.worker_ratio_display = 'Rasio pekerja harus dipilih';
     }
@@ -233,28 +365,13 @@ const AreaCalculator = ({ jobType, onSave }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const getFieldLabel = (field) => {
-    const labels = {
-      length: 'Panjang',
-      width: 'Lebar',
-      base: 'Alas',
-      height: 'Tinggi',
-      radius: 'Jari-jari',
-      diameter: 'Diameter',
-      top_width: 'Lebar Atas',
-      bottom_width: 'Lebar Bawah',
-      trapezoid_height: 'Tinggi'
-    };
-    return labels[field] || field;
-  };
-
   const calculateCosts = () => {
     if (!validateForm()) return;
 
     setIsCalculating(true);
 
     try {
-      const volume = parseFloat(formData.volume) || 0;
+      const area = parseFloat(formData.area) || 0;
       const productivity = parseFloat(formData.productivity) || 0;
       const profitPercentage = (parseFloat(formData.profit_percentage) || 0) / 100;
       const wasteFactor = (parseFloat(formData.waste_factor) || 0) / 100;
@@ -270,23 +387,27 @@ const AreaCalculator = ({ jobType, onSave }) => {
       
       let numberOfTeams = 0;
       if (tukangRatio === 0 && pekerjaRatio > 0) {
+        // Special case: only pekerja working (0:X ratio)
         numberOfTeams = Math.floor(numPekerja / pekerjaRatio);
       } else if (pekerjaRatio === 0 && tukangRatio > 0) {
+        // Special case: only tukang working (X:0 ratio)
         numberOfTeams = Math.floor(numTukang / tukangRatio);
       } else if (tukangRatio > 0 && pekerjaRatio > 0) {
+        // Normal case: both tukang and pekerja working
         const maxTeamsFromTukang = Math.floor(numTukang / tukangRatio);
         const maxTeamsFromPekerja = Math.floor(numPekerja / pekerjaRatio);
         numberOfTeams = Math.min(maxTeamsFromTukang, maxTeamsFromPekerja);
       }
       
+      // Ensure we have at least some productivity even with 0 teams
       const adjustedProductivity = numberOfTeams > 0 ? productivity * numberOfTeams : productivity;
-      const estimatedDays = adjustedProductivity > 0 ? volume / adjustedProductivity : 0;
+      const estimatedDays = adjustedProductivity > 0 ? area / adjustedProductivity : 0;
       const totalLaborCost = dailyLaborCost * estimatedDays;
 
       // Calculate material costs
       let totalMaterialCost = 0;
       const materialDetails = materials.map(material => {
-        const baseQuantity = material.quantity * volume;
+        const baseQuantity = material.quantity * area;
         const quantityWithWaste = baseQuantity * (1 + wasteFactor);
         const materialCost = quantityWithWaste * material.price;
         totalMaterialCost += materialCost;
@@ -306,13 +427,9 @@ const AreaCalculator = ({ jobType, onSave }) => {
       const rab = hpp * (1 + profitPercentage);
       const keuntungan = rab - hpp;
 
-      const selectedShape = shapeOptions.find(s => s.id === formData.shape);
-
       const result = {
-        volume,
+        area,
         satuan: jobType?.unit || 'm²',
-        shape: selectedShape?.name || 'Tidak diketahui',
-        shapeFormula: selectedShape?.formula || '',
         bahan: materialDetails,
         tukang: {
           count: numTukang,
@@ -336,7 +453,9 @@ const AreaCalculator = ({ jobType, onSave }) => {
         profitPercentage: parseFloat(formData.profit_percentage),
         wasteFactor: parseFloat(formData.waste_factor),
         projectName: formData.project_name,
-        workerRatio: workerRatio
+        workerRatio: workerRatio,
+        shape: selectedShape,
+        dimensions: useManualArea ? { manual: formData.area } : dimensions
       };
 
       setCalculation(result);
@@ -364,7 +483,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
         ...calculation,
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        jobType: jobType?.name || 'Pekerjaan Volume'
+        jobType: jobType?.name || 'Pekerjaan Luas'
       };
       savedCalculations.unshift(newCalculation);
       localStorage.setItem('area_calculations', JSON.stringify(savedCalculations.slice(0, 50)));
@@ -385,7 +504,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
       const reportGenerator = new GenericReportGenerator(calculation, 'area', jobType);
       const pdfDoc = reportGenerator.generateReport();
       
-      const filename = `laporan-area-${formData.project_name || 'konstruksi'}-${new Date().toISOString().split('T')[0]}.pdf`;
+      const filename = `laporan-luas-${formData.project_name || 'konstruksi'}-${new Date().toISOString().split('T')[0]}.pdf`;
       reportGenerator.save(filename);
       
       toast.success('Laporan PDF berhasil diunduh!');
@@ -413,8 +532,269 @@ const AreaCalculator = ({ jobType, onSave }) => {
     !materials.some(m => m.id === material.id)
   );
 
-  const selectedShape = shapeOptions.find(s => s.id === formData.shape);
+  // Show loading state for materials
+  const isMaterialsLoading = isLoadingMaterials || isLoadingJobTypeMaterials;
+  
+  // Render dimension inputs based on selected shape
+  const renderDimensionInputs = () => {
+    switch (selectedShape) {
+      case 'rectangle':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Panjang (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.length}
+                onChange={(e) => handleDimensionChange('length', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Masukkan panjang"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Lebar (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.width}
+                onChange={(e) => handleDimensionChange('width', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Masukkan lebar"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+        );
+      
+      case 'square':
+        return (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Sisi (m) *
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={dimensions.side}
+              onChange={(e) => handleDimensionChange('side', e.target.value)}
+              onFocus={handleInputFocus}
+              onWheel={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.target.blur();
+              }}
+              placeholder="Masukkan panjang sisi"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              required
+            />
+          </div>
+        );
+      
+      case 'triangle':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Alas (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.base}
+                onChange={(e) => handleDimensionChange('base', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Masukkan panjang alas"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tinggi (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.height}
+                onChange={(e) => handleDimensionChange('height', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Masukkan tinggi"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+        );
+      
+      case 'circle':
+        return (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Radius (m) *
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={dimensions.radius}
+              onChange={(e) => handleDimensionChange('radius', e.target.value)}
+              onFocus={handleInputFocus}
+              onWheel={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.target.blur();
+              }}
+              placeholder="Masukkan radius"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              required
+            />
+          </div>
+        );
+      
+      case 'trapezoid':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Sisi Atas (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.topBase}
+                onChange={(e) => handleDimensionChange('topBase', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Panjang sisi atas"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Sisi Bawah (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.bottomBase}
+                onChange={(e) => handleDimensionChange('bottomBase', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Panjang sisi bawah"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tinggi (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.trapezoidHeight}
+                onChange={(e) => handleDimensionChange('trapezoidHeight', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Tinggi trapesium"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+        );
 
+      case 'parallelogram':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Alas (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.parallelogramBase}
+                onChange={(e) => handleDimensionChange('parallelogramBase', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Panjang alas"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tinggi (m) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dimensions.parallelogramHeight}
+                onChange={(e) => handleDimensionChange('parallelogramHeight', e.target.value)}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                placeholder="Tinggi jajar genjang"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
+  };
+  
   return (
     <div className="space-y-6">
       {/* Input Form */}
@@ -422,10 +802,10 @@ const AreaCalculator = ({ jobType, onSave }) => {
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-900 flex items-center">
             <Calculator className="w-6 h-6 text-primary-600 mr-3" />
-            Kalkulator Volume
+            Kalkulator Luas
           </h2>
           <p className="text-gray-600 mt-1">
-            Hitung biaya pekerjaan berdasarkan volume dengan berbagai bentuk geometri
+            Hitung biaya pekerjaan berdasarkan luas dengan berbagai bentuk geometri
           </p>
         </div>
 
@@ -450,16 +830,16 @@ const AreaCalculator = ({ jobType, onSave }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Pilih Bentuk *
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {shapeOptions.map((shape) => {
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {shapes.map((shape) => {
                 const IconComponent = shape.icon;
                 return (
                   <button
                     key={shape.id}
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, shape: shape.id }))}
+                    onClick={() => setSelectedShape(shape.id)}
                     className={`p-3 border-2 rounded-lg transition-all duration-200 ${
-                      formData.shape === shape.id
+                      selectedShape === shape.id
                         ? 'border-primary-500 bg-primary-50 text-primary-700'
                         : 'border-gray-300 hover:border-gray-400 text-gray-600'
                     }`}
@@ -473,72 +853,34 @@ const AreaCalculator = ({ jobType, onSave }) => {
             </div>
           </div>
 
-          {/* Manual Volume Toggle */}
+          {/* Manual Area Toggle */}
           <div>
             <label className="flex items-center space-x-3">
               <input
                 type="checkbox"
-                checked={useManualVolume}
-                onChange={(e) => setUseManualVolume(e.target.checked)}
+                checked={useManualArea}
+                onChange={(e) => setUseManualArea(e.target.checked)}
                 className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
               />
               <span className="text-sm font-medium text-gray-700">
-                Input volume manual
+                Input luas manual
               </span>
             </label>
             <p className="text-xs text-gray-500 mt-1">
-              Centang jika ingin memasukkan volume secara manual tanpa menghitung dari dimensi
+              Centang jika ingin memasukkan luas secara manual tanpa menghitung dari dimensi
             </p>
           </div>
 
-          {/* Shape-specific inputs - Hidden when manual volume is enabled */}
-          {selectedShape && !useManualVolume && (
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">
-                Dimensi {selectedShape.name}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {selectedShape.fields.map((field) => (
-                  <div key={field}>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {getFieldLabel(field)} (m) *
-                    </label>
-                    <input
-                      type="number"
-                      name={field}
-                      value={formData[field]}
-                      onChange={handleInputChange}
-                      onFocus={handleInputFocus}
-                      onWheel={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.target.blur();
-                      }}
-                      step="0.01"
-                      min="0.01"
-                      required
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                        errors[field] ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder={`Masukkan ${getFieldLabel(field).toLowerCase()}`}
-                    />
-                    {errors[field] && <p className="text-red-500 text-sm mt-1">{errors[field]}</p>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Volume and Productivity */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Area Input or Dimensions */}
+          {useManualArea ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Volume (m²) *
+                Luas (m²) *
               </label>
               <input
                 type="number"
-                name="volume"
-                value={formData.volume}
+                name="area"
+                value={formData.area}
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
                 onWheel={(e) => {
@@ -549,19 +891,48 @@ const AreaCalculator = ({ jobType, onSave }) => {
                 step="0.01"
                 min="0.01"
                 required
-                disabled={!useManualVolume && formData.volume}
                 className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                  errors.volume ? 'border-red-500' : 'border-gray-300'
-                } ${!useManualVolume && formData.volume ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                placeholder={useManualVolume ? "Masukkan volume manual" : "Volume akan terhitung otomatis dari dimensi"}
+                  errors.area ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Masukkan luas dalam m²"
               />
-              {errors.volume && <p className="text-red-500 text-sm mt-1">{errors.volume}</p>}
-              <p className="text-xs text-gray-500 mt-1">
-                {useManualVolume 
-                  ? "Volume diinput secara manual" 
-                  : "Volume otomatis terhitung dari dimensi bentuk"
-                }
-              </p>
+              {errors.area && <p className="text-red-500 text-sm mt-1">{errors.area}</p>}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Dimensi {shapes.find(s => s.id === selectedShape)?.name}
+              </label>
+              {renderDimensionInputs()}
+            </div>
+          )}
+
+          {/* Area and Productivity */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Luas (m²) *
+              </label>
+              <input
+                type="number"
+                name="area"
+                value={formData.area}
+                onChange={handleInputChange}
+                onFocus={handleInputFocus}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.target.blur();
+                }}
+                step="0.01"
+                min="0.01"
+                required
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                  errors.area ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Masukkan luas dalam m²"
+              />
+              {errors.area && <p className="text-red-500 text-sm mt-1">{errors.area}</p>}
             </div>
 
             <div>
@@ -752,6 +1123,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
+                      {/* Always show quantity input - editable for all materials */}
                       <input
                         type="number"
                         value={material.quantity}
@@ -785,10 +1157,13 @@ const AreaCalculator = ({ jobType, onSave }) => {
             <button
               type="button"
               onClick={() => setShowMaterialSelector(true)}
-              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-gray-600 hover:text-primary-600"
+              disabled={isMaterialsLoading}
+              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-gray-600 hover:text-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="w-5 h-5 mx-auto mb-1" />
-              <span className="text-sm">Tambah Material</span>
+              <span className="text-sm">
+                {isMaterialsLoading ? 'Memuat Material...' : 'Tambah Material'}
+              </span>
             </button>
           </div>
 
@@ -849,14 +1224,10 @@ const AreaCalculator = ({ jobType, onSave }) => {
               <table className="w-full border-collapse border border-gray-300 table-fixed">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-16">Volume</th>
+                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-16">Luas</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-16">Satuan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-32">Bahan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Tukang</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Bahan</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Tukang</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB Bahan</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB Tukang</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Keuntungan</th>
@@ -865,7 +1236,7 @@ const AreaCalculator = ({ jobType, onSave }) => {
                 <tbody>
                   <tr>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-16">
-                      {formatNumber(calculation.volume)}
+                      {formatNumber(calculation.area)}
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-16">
                       {calculation.satuan}
@@ -896,18 +1267,6 @@ const AreaCalculator = ({ jobType, onSave }) => {
                         </div>
                       </div>
                     </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                      {formatCurrency(calculation.hppBahan)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                      {formatCurrency(calculation.hppTukang)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-green-600 text-xs w-24">
-                      {formatCurrency(calculation.rabBahan)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-green-600 text-xs w-24">
-                      {formatCurrency(calculation.rabTukang)}
-                    </td>
                     <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-700 bg-blue-50 text-xs w-24">
                       {formatCurrency(calculation.hpp)}
                     </td>
@@ -920,6 +1279,82 @@ const AreaCalculator = ({ jobType, onSave }) => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Analisis Harga per Satuan Volume */}
+            <div className="mt-6">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">Analisis Harga per Satuan Volume</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Luas</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB per Satuan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="bg-white">
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        {formatNumber(calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        {calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-600">
+                        {formatCurrency(calculation.area > 0 ? calculation.hppBahan / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-700">
+                        {formatCurrency(calculation.area > 0 ? calculation.rabBahan / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-600">
+                        {formatCurrency(calculation.area > 0 ? calculation.hppTukang / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-700">
+                        {formatCurrency(calculation.area > 0 ? calculation.rabTukang / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-700">
+                        {formatCurrency(calculation.area > 0 ? calculation.hpp / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-700">
+                        {formatCurrency(calculation.area > 0 ? calculation.rab / calculation.area : 0)}/{calculation.satuan}
+                      </td>
+                    </tr>
+                    {/* Total Row */}
+                    <tr className="bg-yellow-50 border-t-2 border-yellow-400">
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-gray-900">
+                        TOTAL
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        -
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.hppBahan)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency(calculation.rabBahan)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.hppTukang)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency(calculation.rabTukang)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.hpp)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.rab)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Detail Information */}
@@ -1056,36 +1491,83 @@ const AreaCalculator = ({ jobType, onSave }) => {
             </div>
             
             <div className="p-4 max-h-96 overflow-y-auto">
-              {filteredMaterials.length > 0 ? (
+              {isMaterialsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p className="text-gray-500">Memuat material...</p>
+                </div>
+              ) : materialsError ? (
+                <div className="text-center py-8">
+                  <Package className="w-12 h-12 text-red-300 mx-auto mb-4" />
+                  <p className="text-red-500 mb-2">Gagal memuat material</p>
+                  <p className="text-sm text-gray-500">Periksa koneksi internet Anda</p>
+                </div>
+              ) : filteredMaterials.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredMaterials.map((material) => (
-                    <div
-                      key={material.id}
-                      onClick={() => addMaterial(material)}
-                      className="p-3 border border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-gray-900">{material.name}</p>
-                          <p className="text-sm text-gray-600">
-                            {formatCurrency(material.price)}/{material.unit}
-                            {material.supplier && ` • ${material.supplier}`}
-                          </p>
+                  {filteredMaterials.map((material) => {
+                    const isSelected = selectedMaterials.some(m => m.id === material.id);
+                    return (
+                      <div
+                        key={material.id}
+                        onClick={() => toggleMaterialSelection(material)}
+                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'border-primary-500 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-900">{material.name}</p>
+                            <p className="text-sm text-gray-600">
+                              {formatCurrency(material.price)}/{material.unit}
+                              {material.supplier && ` • ${material.supplier}`}
+                            </p>
+                            {material.description && (
+                              <p className="text-xs text-gray-500 mt-1">{material.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center">
+                            {isSelected ? (
+                              <CheckCircle className="w-5 h-5 text-primary-600" />
+                            ) : (
+                              <Plus className="w-5 h-5 text-primary-600" />
+                            )}
+                          </div>
                         </div>
-                        <Plus className="w-5 h-5 text-primary-600" />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8">
                   <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">
-                    {materialSearch ? 'Tidak ada material yang ditemukan' : 'Mulai mengetik untuk mencari material'}
+                    {materialSearch ? 'Tidak ada material yang ditemukan' : 
+                     availableMaterials.length === 0 ? 'Belum ada material tersedia' :
+                     'Mulai mengetik untuk mencari material'}
                   </p>
+                  {availableMaterials.length === 0 && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Hubungi administrator untuk menambahkan material
+                    </p>
+                  )}
                 </div>
               )}
             </div>
+            
+            {/* Add Selected Materials Button */}
+            {selectedMaterials.length > 0 && (
+              <div className="p-4 border-t border-gray-200 bg-gray-50">
+                <button
+                  onClick={addSelectedMaterials}
+                  className="w-full btn-primary flex items-center justify-center space-x-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah {selectedMaterials.length} Material Terpilih</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

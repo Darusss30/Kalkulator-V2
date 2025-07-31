@@ -17,6 +17,8 @@ import {
   Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQuery } from 'react-query';
+import apiService from '../../services/api';
 
 const BeamCalculator = ({ jobType, onCalculationComplete }) => {
   const [formData, setFormData] = useState({
@@ -46,10 +48,16 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     project_name: ''
   });
 
-  const [materials, setMaterials] = useState([]);
+  // Separate materials for each sub-pekerjaan
+  const [betonMaterials, setBetonMaterials] = useState([]);
+  const [bekistingMaterials, setBekistingMaterials] = useState([]);
+  const [besiMaterials, setBesiMaterials] = useState([]);
+  
   const [showMaterialSelector, setShowMaterialSelector] = useState(false);
+  const [currentMaterialType, setCurrentMaterialType] = useState(''); // 'beton', 'bekisting', 'besi'
   const [availableMaterials, setAvailableMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
@@ -72,9 +80,19 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
   // Concrete quality options with proper mix design ratios
   const concreteQualityOptions = [
     { 
+      value: 'K125', 
+      label: 'K-125 (fc\' = 10.4 MPa)', 
+      mixRatio: { cement: 1, sand: 3, gravel: 5 }, // 1 : 3 : 5
+      cementRatio: 5.5,     // sak semen per m³ beton
+      sandRatio: 0.42,      // m³ pasir per m³ beton  
+      gravelRatio: 0.70,    // m³ kerikil per m³ beton
+      waterCementRatio: 0.70 // rasio air semen
+    },
+    { 
       value: 'K175', 
       label: 'K-175 (fc\' = 14.5 MPa)', 
-      cementRatio: 6.5,
+      mixRatio: { cement: 1, sand: 2.5, gravel: 4.5 }, // 1 : 2.5 : 4.5
+      cementRatio: 6.5,     // sak semen per m³ beton
       sandRatio: 0.45,      // m³ pasir per m³ beton
       gravelRatio: 0.65,    // m³ kerikil per m³ beton
       waterCementRatio: 0.65 // rasio air semen
@@ -82,190 +100,174 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     { 
       value: 'K200', 
       label: 'K-200 (fc\' = 16.6 MPa)', 
+      mixRatio: { cement: 1, sand: 2.5, gravel: 4 }, // 1 : 2.5 : 4
       cementRatio: 7,
       sandRatio: 0.47,
-      gravelRatio: 0.67,
+      gravelRatio: 0.62,
       waterCementRatio: 0.60
     },
     { 
       value: 'K225', 
       label: 'K-225 (fc\' = 18.7 MPa)', 
+      mixRatio: { cement: 1, sand: 2, gravel: 3.5 }, // 1 : 2 : 3.5
       cementRatio: 7.5,
       sandRatio: 0.48,
-      gravelRatio: 0.68,
+      gravelRatio: 0.58,
       waterCementRatio: 0.58
     },
     { 
       value: 'K250', 
       label: 'K-250 (fc\' = 20.8 MPa)', 
+      mixRatio: { cement: 1, sand: 2, gravel: 3 }, // 1 : 2 : 3
       cementRatio: 8,
       sandRatio: 0.50,
-      gravelRatio: 0.70,
+      gravelRatio: 0.55,
       waterCementRatio: 0.55
     },
     { 
       value: 'K300', 
       label: 'K-300 (fc\' = 25 MPa)', 
+      mixRatio: { cement: 1, sand: 1.5, gravel: 2.5 }, // 1 : 1.5 : 2.5
       cementRatio: 8.5,
-      sandRatio: 0.52,
-      gravelRatio: 0.72,
+      sandRatio: 0.42,
+      gravelRatio: 0.50,
       waterCementRatio: 0.50
     },
     { 
       value: 'K350', 
       label: 'K-350 (fc\' = 29.2 MPa)', 
+      mixRatio: { cement: 1, sand: 1.5, gravel: 2.5 }, // 1 : 1.5 : 2.5
       cementRatio: 9,
-      sandRatio: 0.54,
-      gravelRatio: 0.74,
+      sandRatio: 0.40,
+      gravelRatio: 0.48,
       waterCementRatio: 0.45
+    },
+    { 
+      value: 'K400', 
+      label: 'K-400 (fc\' = 33.2 MPa)', 
+      mixRatio: { cement: 1, sand: 1, gravel: 2 }, // 1 : 1 : 2
+      cementRatio: 9.5,
+      sandRatio: 0.38,
+      gravelRatio: 0.45,
+      waterCementRatio: 0.40
     }
   ];
 
-  // Load available materials with dual unit system
-  useEffect(() => {
-    setAvailableMaterials([
-      { 
-        id: 1, 
-        name: 'Semen Portland', 
-        marketUnit: 'sak', 
-        siUnit: 'kg',
-        marketPrice: 65000, 
-        siPrice: 1625, // 65000/40kg
-        conversionFactor: 40, // 1 sak = 40 kg
-        supplier: 'Toko Bangunan A' 
+  // Fetch materials from database
+  const {
+    data: materialsData,
+    isLoading: isLoadingMaterials,
+    error: materialsError
+  } = useQuery(
+    ['materials', { limit: 100 }],
+    () => apiService.materials.getMaterials({ limit: 100 }),
+    {
+      onSuccess: (data) => {
+        // Transform materials to include dual unit system for BeamCalculator
+        const transformedMaterials = (data?.data?.materials || []).map(material => ({
+          ...material,
+          marketUnit: material.unit,
+          marketPrice: material.price,
+          siUnit: material.base_unit || material.unit,
+          siPrice: material.conversion_factor ? material.price / material.conversion_factor : material.price,
+          conversionFactor: material.conversion_factor || 1
+        }));
+        setAvailableMaterials(transformedMaterials);
       },
-      { 
-        id: 2, 
-        name: 'Pasir Halus', 
-        marketUnit: 'm³', 
-        siUnit: 'kg',
-        marketPrice: 350000, 
-        siPrice: 233.33, // assuming 1500 kg/m³
-        conversionFactor: 1500, // 1 m³ = 1500 kg
-        supplier: 'Supplier Pasir B' 
-      },
-      { 
-        id: 3, 
-        name: 'Kerikil', 
-        marketUnit: 'm³', 
-        siUnit: 'kg',
-        marketPrice: 400000, 
-        siPrice: 250, // assuming 1600 kg/m³
-        conversionFactor: 1600, // 1 m³ = 1600 kg
-        supplier: 'Supplier Batu C' 
-      },
-      { 
-        id: 4, 
-        name: 'Besi Beton D8', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 75000, 
-        siPrice: 15822.78, // 75000/(12m * 0.395kg/m)
-        conversionFactor: 4.74, // 12m * 0.395kg/m = 4.74 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 5, 
-        name: 'Besi Beton D10', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 85000, 
-        siPrice: 11458.33, // 85000/(12m * 0.617kg/m)
-        conversionFactor: 7.404, // 12m * 0.617kg/m = 7.404 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 6, 
-        name: 'Besi Beton D12', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 95000, 
-        siPrice: 8918.92, // 95000/(12m * 0.888kg/m)
-        conversionFactor: 10.656, // 12m * 0.888kg/m = 10.656 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 7, 
-        name: 'Besi Beton D16', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 125000, 
-        siPrice: 6607.72, // 125000/(12m * 1.578kg/m)
-        conversionFactor: 18.936, // 12m * 1.578kg/m = 18.936 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 8, 
-        name: 'Besi Beton D19', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 155000, 
-        siPrice: 5804.32, // 155000/(12m * 2.226kg/m)
-        conversionFactor: 26.712, // 12m * 2.226kg/m = 26.712 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 9, 
-        name: 'Besi Beton D22', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 185000, 
-        siPrice: 5166.89, // 185000/(12m * 2.984kg/m)
-        conversionFactor: 35.808, // 12m * 2.984kg/m = 35.808 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 10, 
-        name: 'Besi Beton D25', 
-        marketUnit: 'batang', 
-        siUnit: 'kg',
-        marketPrice: 225000, 
-        siPrice: 4867.26, // 225000/(12m * 3.853kg/m)
-        conversionFactor: 46.236, // 12m * 3.853kg/m = 46.236 kg per batang
-        supplier: 'Toko Besi D' 
-      },
-      { 
-        id: 11, 
-        name: 'Kawat Bendrat', 
-        marketUnit: 'bendel', 
-        siUnit: 'kg',
-        marketPrice: 125000, // 5kg x 25000 per kg
-        siPrice: 25000, // per kg
-        conversionFactor: 5, // 1 bendel = 5 kg
-        supplier: 'Toko Bangunan A' 
-      },
-      { 
-        id: 12, 
-        name: 'Kayu Bekisting 3x5', 
-        marketUnit: 'bendel', 
-        siUnit: 'lembar',
-        marketPrice: 850000, // 10 lembar x 85000 per m²
-        siPrice: 85000, // per lembar
-        conversionFactor: 10, // 1 bendel = 10 lembar
-        supplier: 'Supplier Kayu E' 
-      },
-      { 
-        id: 13, 
-        name: 'Kayu Bekisting 4x6', 
-        marketUnit: 'bendel', 
-        siUnit: 'lembar',
-        marketPrice: 510000, // 6 lembar x 85000 per m²
-        siPrice: 85000, // per lembar
-        conversionFactor: 6, // 1 bendel = 6 lembar
-        supplier: 'Supplier Kayu E' 
-      },
-      { 
-        id: 14, 
-        name: 'Paku', 
-        marketUnit: 'kg', 
-        siUnit: 'kg',
-        marketPrice: 18000, 
-        siPrice: 18000,
-        conversionFactor: 1, // 1 kg = 1 kg
-        supplier: 'Toko Bangunan A' 
+      onError: (error) => {
+        console.error('Failed to fetch materials:', error);
+        toast.error('Gagal memuat data material');
+        // Fallback to empty array
+        setAvailableMaterials([]);
       }
-    ]);
-  }, []);
+    }
+  );
+
+  // Fetch job-type specific materials if jobType is available
+  const {
+    data: jobTypeMaterialsData,
+    isLoading: isLoadingJobTypeMaterials
+  } = useQuery(
+    ['jobTypeMaterials', jobType?.id],
+    () => apiService.materials.getMaterialsByJobType(jobType.id),
+    {
+      enabled: Boolean(jobType?.id),
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
+      staleTime: 0, // Always fetch fresh data
+      cacheTime: 0, // Don't cache to ensure fresh data
+      onSuccess: (data) => {
+        const jobTypeMaterials = data?.data?.materials || [];
+        if (jobTypeMaterials.length > 0) {
+          // Transform job-type materials to include dual unit system
+          const transformedMaterials = jobTypeMaterials.map(material => ({
+            ...material,
+            marketUnit: material.unit,
+            marketPrice: material.price,
+            siUnit: material.base_unit || material.unit,
+            siPrice: material.conversion_factor ? material.price / material.conversion_factor : material.price,
+            conversionFactor: material.conversion_factor || 1
+          }));
+          setAvailableMaterials(transformedMaterials);
+          
+          // Check if materials should be auto-loaded or user should choose
+          const primaryMaterials = transformedMaterials.filter(material => material.is_primary);
+          
+          if (primaryMaterials.length > 0) {
+            // Auto-distribute primary materials to appropriate sub-pekerjaan based on material type
+            const betonMats = [];
+            const bekistingMats = [];
+            const besiMats = [];
+            
+            primaryMaterials.forEach(material => {
+              const materialWithQuantity = {
+                ...material,
+                quantity: material.quantity_per_unit // Use exact configured quantity
+              };
+              
+              // Distribute based on material name/type
+              const name = material.name.toLowerCase();
+              if (name.includes('semen') || name.includes('pasir') || name.includes('kerikil') || name.includes('beton')) {
+                betonMats.push(materialWithQuantity);
+              } else if (name.includes('kayu') || name.includes('paku') || name.includes('bekisting')) {
+                bekistingMats.push(materialWithQuantity);
+              } else if (name.includes('besi') || name.includes('kawat') || name.includes('tulangan')) {
+                besiMats.push(materialWithQuantity);
+              } else {
+                // Default to beton if unclear
+                betonMats.push(materialWithQuantity);
+              }
+            });
+            
+            setBetonMaterials(betonMats);
+            setBekistingMaterials(bekistingMats);
+            setBesiMaterials(besiMats);
+            
+            toast.success(`${primaryMaterials.length} material utama otomatis dimuat untuk ${jobType.name}`);
+            
+            // Show info about optional materials
+            const optionalMaterials = transformedMaterials.filter(material => !material.is_primary);
+            if (optionalMaterials.length > 0) {
+              toast(`${optionalMaterials.length} material pilihan tersedia. Klik "Tambah Material" untuk memilih.`, {
+                icon: 'ℹ️',
+                duration: 4000,
+              });
+            }
+          } else {
+            // If no primary materials, show info that user needs to choose
+            toast(`${jobTypeMaterials.length} material tersedia untuk ${jobType.name}. Pilih material yang akan digunakan.`, {
+              icon: 'ℹ️',
+              duration: 4000,
+            });
+          }
+        }
+      },
+      onError: (error) => {
+        console.error('Failed to fetch job type materials:', error);
+        // Don't show error toast for job type materials, fall back to general materials
+      }
+    }
+  );
 
   // Set productivity from jobType when component mounts or jobType changes
   useEffect(() => {
@@ -341,24 +343,107 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     };
   }, [formData.beam_length, formData.beam_width, formData.beam_height, formData.beam_cover, formData.stirrup_spacing]);
 
+  const getCurrentMaterials = () => {
+    switch (currentMaterialType) {
+      case 'beton': return betonMaterials;
+      case 'bekisting': return bekistingMaterials;
+      case 'besi': return besiMaterials;
+      default: return [];
+    }
+  };
+
+  const setCurrentMaterials = (materials) => {
+    switch (currentMaterialType) {
+      case 'beton': setBetonMaterials(materials); break;
+      case 'bekisting': setBekistingMaterials(materials); break;
+      case 'besi': setBesiMaterials(materials); break;
+    }
+  };
+
+  const toggleMaterialSelection = (material) => {
+    setSelectedMaterials(prev => {
+      const isSelected = prev.some(m => m.id === material.id);
+      if (isSelected) {
+        return prev.filter(m => m.id !== material.id);
+      } else {
+        return [...prev, material];
+      }
+    });
+  };
+
+  const addSelectedMaterials = () => {
+    const currentMats = getCurrentMaterials();
+    const newMaterials = selectedMaterials.filter(material => 
+      !currentMats.some(m => m.id === material.id)
+    ).map(material => ({
+      ...material,
+      quantity: material.quantity_per_unit || 1
+    }));
+    
+    setCurrentMaterials([...currentMats, ...newMaterials]);
+    setSelectedMaterials([]);
+    setShowMaterialSelector(false);
+    setMaterialSearch('');
+    setCurrentMaterialType('');
+    
+    if (newMaterials.length > 0) {
+      const typeNames = { beton: 'Beton', bekisting: 'Bekisting', besi: 'Besi' };
+      toast.success(`${newMaterials.length} material ${typeNames[currentMaterialType]} berhasil ditambahkan`);
+    }
+  };
+
   const addMaterial = (material) => {
-    const isAlreadyAdded = materials.some(m => m.id === material.id);
+    const currentMats = getCurrentMaterials();
+    const isAlreadyAdded = currentMats.some(m => m.id === material.id);
     if (!isAlreadyAdded) {
-      setMaterials(prev => [...prev, { ...material, quantity: 1 }]);
+      // Use configured quantity if available, otherwise default to 1
+      const defaultQuantity = material.quantity_per_unit || 1;
+      setCurrentMaterials([...currentMats, { ...material, quantity: defaultQuantity }]);
     }
     setShowMaterialSelector(false);
     setMaterialSearch('');
+    setCurrentMaterialType('');
   };
 
-  const removeMaterial = (materialId) => {
-    setMaterials(prev => prev.filter(m => m.id !== materialId));
+  const removeMaterial = (materialId, type) => {
+    switch (type) {
+      case 'beton':
+        setBetonMaterials(prev => prev.filter(m => m.id !== materialId));
+        break;
+      case 'bekisting':
+        setBekistingMaterials(prev => prev.filter(m => m.id !== materialId));
+        break;
+      case 'besi':
+        setBesiMaterials(prev => prev.filter(m => m.id !== materialId));
+        break;
+    }
   };
 
-  const updateMaterialQuantity = (materialId, quantity) => {
-    setMaterials(prev => prev.map(m => 
-      m.id === materialId ? { ...m, quantity: parseFloat(quantity) || 0 } : m
-    ));
+  const updateMaterialQuantity = (materialId, quantity, type) => {
+    switch (type) {
+      case 'beton':
+        setBetonMaterials(prev => prev.map(m => 
+          m.id === materialId ? { ...m, quantity: parseFloat(quantity) || 0 } : m
+        ));
+        break;
+      case 'bekisting':
+        setBekistingMaterials(prev => prev.map(m => 
+          m.id === materialId ? { ...m, quantity: parseFloat(quantity) || 0 } : m
+        ));
+        break;
+      case 'besi':
+        setBesiMaterials(prev => prev.map(m => 
+          m.id === materialId ? { ...m, quantity: parseFloat(quantity) || 0 } : m
+        ));
+        break;
+    }
   };
+
+  const openMaterialSelector = (type) => {
+    setCurrentMaterialType(type);
+    setShowMaterialSelector(true);
+  };
+
 
 
   const validateForm = () => {
@@ -480,58 +565,55 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
 
       // Beton materials (cement, sand, gravel)
       let betonMaterialCost = 0;
-      const betonMaterials = [];
+      const processedBetonMaterials = [];
       
-      // Get concrete quality specifications
+      // Get concrete quality specifications for adjustment
       const selectedConcreteQuality = concreteQualityOptions.find(q => q.value === formData.concrete_quality);
-      const cementRatio = selectedConcreteQuality ? selectedConcreteQuality.cementRatio : 7;
-      const sandRatio = selectedConcreteQuality ? selectedConcreteQuality.sandRatio : 0.50;
-      const gravelRatio = selectedConcreteQuality ? selectedConcreteQuality.gravelRatio : 0.70;
+      const currentCementRatio = selectedConcreteQuality ? selectedConcreteQuality.cementRatio : 7;
+      const currentSandRatio = selectedConcreteQuality ? selectedConcreteQuality.sandRatio : 0.50;
+      const currentGravelRatio = selectedConcreteQuality ? selectedConcreteQuality.gravelRatio : 0.70;
       
-      // Semen: berdasarkan kualitas beton (40kg per sak)
-      const semenQuantity = quantities.concreteVolume * cementRatio * (1 + wasteFactor);
-      const semenQuantityKg = semenQuantity * 40; // 40kg per sak
-      const semenCost = semenQuantity * 65000; // Rp 65,000 per sak
-      betonMaterialCost += semenCost;
-      betonMaterials.push({
-        name: 'Semen Portland',
-        quantity: semenQuantity,
-        unit: 'sak',
-        siQuantity: semenQuantityKg,
-        siUnit: 'kg',
-        price: 65000,
-        cost: semenCost
+      // Add configured materials from job type or user selection
+      betonMaterials.forEach(material => {
+        // Get baseline K225 ratios for comparison
+        const k225Quality = concreteQualityOptions.find(q => q.value === 'K225');
+        const k225CementRatio = k225Quality ? k225Quality.cementRatio : 7.5;
+        const k225SandRatio = k225Quality ? k225Quality.sandRatio : 0.48;
+        const k225GravelRatio = k225Quality ? k225Quality.gravelRatio : 0.58;
+        
+        // Calculate adjustment factor based on material type
+        let adjustmentFactor = 1.0; // Default no adjustment
+        const materialName = material.name.toLowerCase();
+        
+        if (materialName.includes('semen')) {
+          // Adjust cement-based materials based on cement ratio change
+          adjustmentFactor = currentCementRatio / k225CementRatio;
+        } else if (materialName.includes('pasir')) {
+          // Adjust sand-based materials based on sand ratio change
+          adjustmentFactor = currentSandRatio / k225SandRatio;
+        } else if (materialName.includes('kerikil') || materialName.includes('koral') || materialName.includes('agregat')) {
+          // Adjust gravel-based materials based on gravel ratio change
+          adjustmentFactor = currentGravelRatio / k225GravelRatio;
+        }
+        // Other materials (additives, etc.) remain unchanged
+        
+        const adjustedQuantity = material.quantity * adjustmentFactor;
+        const materialQuantity = adjustedQuantity * quantities.concreteVolume * (1 + wasteFactor);
+        const materialCost = materialQuantity * material.marketPrice;
+        betonMaterialCost += materialCost;
+        processedBetonMaterials.push({
+          name: material.name,
+          quantity: materialQuantity,
+          unit: material.marketUnit,
+          siQuantity: materialQuantity * (material.conversionFactor || 1),
+          siUnit: material.siUnit,
+          price: material.marketPrice,
+          cost: materialCost,
+          adjustmentFactor: adjustmentFactor, // For debugging/display
+          originalQuantity: material.quantity // Store original configured quantity
+        });
       });
 
-      // Pasir: berdasarkan rasio kualitas beton (1500 kg/m³)
-      const pasirQuantity = quantities.concreteVolume * sandRatio * (1 + wasteFactor);
-      const pasirQuantityKg = pasirQuantity * 1500; // 1500 kg per m³
-      const pasirCost = pasirQuantity * 350000; // Rp 350,000 per m³
-      betonMaterialCost += pasirCost;
-      betonMaterials.push({
-        name: 'Pasir Halus',
-        quantity: pasirQuantity,
-        unit: 'm³',
-        siQuantity: pasirQuantityKg,
-        siUnit: 'kg',
-        price: 350000,
-        cost: pasirCost
-      });
-
-      // Kerikil: berdasarkan rasio kualitas beton (1600 kg/m³)
-      const kerikilQuantity = quantities.concreteVolume * gravelRatio * (1 + wasteFactor);
-      const kerikilQuantityKg = kerikilQuantity * 1600; // 1600 kg per m³
-      const kerikilCost = kerikilQuantity * 400000; // Rp 400,000 per m³
-      betonMaterialCost += kerikilCost;
-      betonMaterials.push({
-        name: 'Kerikil',
-        quantity: kerikilQuantity,
-        unit: 'm³',
-        siQuantity: kerikilQuantityKg,
-        siUnit: 'kg',
-        price: 400000,
-        cost: kerikilCost
-      });
 
       const betonHPP = betonLaborCost + betonMaterialCost;
       const betonRAB = betonHPP * (1 + profitPercentage);
@@ -540,7 +622,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
         name: 'Beton',
         volume: quantities.concreteVolume,
         unit: 'm³',
-        materials: betonMaterials,
+        materials: processedBetonMaterials,
         laborCost: betonLaborCost,
         materialCost: betonMaterialCost,
         hpp: betonHPP,
@@ -562,36 +644,24 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
 
       // Bekisting materials
       let bekistingMaterialCost = 0;
-      const bekistingMaterials = [];
+      const processedBekistingMaterials = [];
 
-      // Kayu bekisting 3x5: 1 lembar per m² formwork (1 bendel = 10 lembar)
-      const kayuQuantityLembar = quantities.formworkArea * 1 * (1 + wasteFactor);
-      const kayuQuantityBendel = Math.ceil(kayuQuantityLembar / 10); // Round up to nearest bendel
-      const kayuCost = kayuQuantityBendel * 850000; // Rp 850,000 per bendel (10 lembar)
-      bekistingMaterialCost += kayuCost;
-      bekistingMaterials.push({
-        name: 'Kayu Bekisting 3x5',
-        quantity: kayuQuantityBendel,
-        unit: 'bendel',
-        siQuantity: kayuQuantityLembar,
-        siUnit: 'lembar',
-        price: 850000,
-        cost: kayuCost
+      // Add configured materials from job type or user selection
+      bekistingMaterials.forEach(material => {
+        const materialQuantity = material.quantity * quantities.formworkArea * (1 + wasteFactor);
+        const materialCost = materialQuantity * material.marketPrice;
+        bekistingMaterialCost += materialCost;
+        processedBekistingMaterials.push({
+          name: material.name,
+          quantity: materialQuantity,
+          unit: material.marketUnit,
+          siQuantity: materialQuantity * (material.conversionFactor || 1),
+          siUnit: material.siUnit,
+          price: material.marketPrice,
+          cost: materialCost
+        });
       });
 
-      // Paku: 0.5 kg per m²
-      const pakuQuantity = quantities.formworkArea * 0.5 * (1 + wasteFactor);
-      const pakuCost = pakuQuantity * 18000; // Rp 18,000 per kg
-      bekistingMaterialCost += pakuCost;
-      bekistingMaterials.push({
-        name: 'Paku',
-        quantity: pakuQuantity,
-        unit: 'kg',
-        siQuantity: pakuQuantity, // Same unit
-        siUnit: 'kg',
-        price: 18000,
-        cost: pakuCost
-      });
 
       const bekistingHPP = bekistingLaborCost + bekistingMaterialCost;
       const bekistingRAB = bekistingHPP * (1 + profitPercentage);
@@ -600,7 +670,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
         name: 'Bekisting',
         volume: quantities.formworkArea,
         unit: 'm²',
-        materials: bekistingMaterials,
+        materials: processedBekistingMaterials,
         laborCost: bekistingLaborCost,
         materialCost: bekistingMaterialCost,
         hpp: bekistingHPP,
@@ -631,53 +701,23 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
 
       // Besi materials
       let besiMaterialCost = 0;
-      const besiMaterials = [];
+      const processedBesiMaterials = [];
 
-      // Main reinforcement bars (12m per bar)
-      const mainBars = Math.ceil(quantities.mainReinforcementLength / 12);
-      const mainBarPrice = getReinforcementPrice(formData.main_reinforcement);
-      const mainBarCost = mainBars * mainBarPrice * (1 + wasteFactor);
-      const mainBarWeightKg = mainBars * (mainReinforcement?.weight || 1.578) * 12; // weight per meter * 12m per bar
-      besiMaterialCost += mainBarCost;
-      besiMaterials.push({
-        name: `Besi Beton ${formData.main_reinforcement}`,
-        quantity: mainBars,
-        unit: 'batang',
-        siQuantity: mainBarWeightKg,
-        siUnit: 'kg',
-        price: mainBarPrice,
-        cost: mainBarCost
-      });
 
-      // Stirrup reinforcement bars
-      const stirrupBars = Math.ceil(quantities.stirrupLength / 12);
-      const stirrupBarPrice = getReinforcementPrice(formData.stirrup_reinforcement);
-      const stirrupBarCost = stirrupBars * stirrupBarPrice * (1 + wasteFactor);
-      const stirrupBarWeightKg = stirrupBars * (stirrupReinforcement?.weight || 0.617) * 12; // weight per meter * 12m per bar
-      besiMaterialCost += stirrupBarCost;
-      besiMaterials.push({
-        name: `Besi Beton ${formData.stirrup_reinforcement}`,
-        quantity: stirrupBars,
-        unit: 'batang',
-        siQuantity: stirrupBarWeightKg,
-        siUnit: 'kg',
-        price: stirrupBarPrice,
-        cost: stirrupBarCost
-      });
-
-      // Kawat bendrat: 1 kg per m³ concrete (1 bendel = 5 kg)
-      const kawatQuantityKg = quantities.concreteVolume * 1 * (1 + wasteFactor);
-      const kawatQuantityBendel = Math.ceil(kawatQuantityKg / 5); // Round up to nearest bendel
-      const kawatCost = kawatQuantityBendel * 125000; // Rp 125,000 per bendel
-      besiMaterialCost += kawatCost;
-      besiMaterials.push({
-        name: 'Kawat Bendrat',
-        quantity: kawatQuantityBendel,
-        unit: 'bendel',
-        siQuantity: kawatQuantityKg,
-        siUnit: 'kg',
-        price: 125000,
-        cost: kawatCost
+      // Add additional besi materials from user input
+      besiMaterials.forEach(material => {
+        const materialQuantity = material.quantity * totalReinforcementWeight * (1 + wasteFactor);
+        const materialCost = materialQuantity * material.marketPrice;
+        besiMaterialCost += materialCost;
+        processedBesiMaterials.push({
+          name: material.name,
+          quantity: materialQuantity,
+          unit: material.marketUnit,
+          siQuantity: materialQuantity * (material.conversionFactor || 1),
+          siUnit: material.siUnit,
+          price: material.marketPrice,
+          cost: materialCost
+        });
       });
 
       const besiHPP = besiLaborCost + besiMaterialCost;
@@ -687,7 +727,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
         name: 'Besi',
         volume: totalReinforcementWeight,
         unit: 'kg',
-        materials: besiMaterials,
+        materials: processedBesiMaterials,
         laborCost: besiLaborCost,
         materialCost: besiMaterialCost,
         hpp: besiHPP,
@@ -785,19 +825,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     }
   };
 
-  // Helper function to get reinforcement price
-  const getReinforcementPrice = (reinforcementType) => {
-    const prices = {
-      'D8': 75000,
-      'D10': 85000,
-      'D12': 95000,
-      'D16': 125000,
-      'D19': 155000,
-      'D22': 185000,
-      'D25': 225000
-    };
-    return prices[reinforcementType] || 125000;
-  };
+
 
   const handleSave = () => {
     if (!calculation) {
@@ -862,12 +890,15 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     return parseFloat(num).toFixed(decimals);
   };
 
-  const filteredMaterials = availableMaterials.filter(material =>
-    material.name.toLowerCase().includes(materialSearch.toLowerCase()) &&
-    !materials.some(m => m.id === material.id)
-  );
+  const filteredMaterials = availableMaterials.filter(material => {
+    const matchesSearch = material.name.toLowerCase().includes(materialSearch.toLowerCase());
+    const currentMats = getCurrentMaterials();
+    const notAlreadySelected = !currentMats.some(m => m.id === material.id);
+    return matchesSearch && notAlreadySelected;
+  });
 
-  const quantities = calculateBeamQuantities();
+  // Show loading state for materials
+  const isMaterialsLoading = isLoadingMaterials || isLoadingJobTypeMaterials;
 
   return (
     <div className="space-y-6">
@@ -980,16 +1011,19 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
             </div>
 
             {/* Volume Preview */}
-            {quantities.concreteVolume > 0 && (
-              <div className="mt-3 p-3 bg-white rounded border">
-                <p className="text-sm text-gray-600">
-                  <strong>Volume Beton:</strong> {formatNumber(quantities.concreteVolume)} m³
-                </p>
-                <p className="text-sm text-gray-600">
-                  <strong>Luas Bekisting:</strong> {formatNumber(quantities.formworkArea)} m²
-                </p>
-              </div>
-            )}
+            {(() => {
+              const previewQuantities = calculateBeamQuantities();
+              return previewQuantities.concreteVolume > 0 && (
+                <div className="mt-3 p-3 bg-white rounded border">
+                  <p className="text-sm text-gray-600">
+                    <strong>Volume Beton:</strong> {formatNumber(previewQuantities.concreteVolume)} m³
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <strong>Luas Bekisting:</strong> {formatNumber(previewQuantities.formworkArea)} m²
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Reinforcement Configuration */}
@@ -1016,6 +1050,17 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                     </option>
                   ))}
                 </select>
+                {formData.concrete_quality !== 'K225' && (
+                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                    <div className="flex items-center text-yellow-800">
+                      <Info className="w-3 h-3 mr-1" />
+                      <span className="font-medium">Penyesuaian Otomatis:</span>
+                    </div>
+                    <p className="text-yellow-700 mt-1">
+                      Material dari konfigurasi (basis K-225) akan disesuaikan otomatis untuk {formData.concrete_quality}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1108,19 +1153,22 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
             </div>
 
             {/* Reinforcement Preview */}
-            {quantities.mainReinforcementLength > 0 && (
-              <div className="mt-3 p-3 bg-white rounded border">
-                <p className="text-sm text-gray-600">
-                  <strong>Tulangan Utama:</strong> {formatNumber(quantities.mainReinforcementLength)} m ({formData.main_reinforcement})
-                </p>
-                <p className="text-sm text-gray-600">
-                  <strong>Tulangan Sengkang:</strong> {formatNumber(quantities.stirrupLength)} m ({formData.stirrup_reinforcement})
-                </p>
-                <p className="text-sm text-gray-600">
-                  <strong>Jumlah Sengkang:</strong> {quantities.numberOfStirrups} buah
-                </p>
-              </div>
-            )}
+            {(() => {
+              const previewQuantities = calculateBeamQuantities();
+              return previewQuantities.mainReinforcementLength > 0 && (
+                <div className="mt-3 p-3 bg-white rounded border">
+                  <p className="text-sm text-gray-600">
+                    <strong>Tulangan Utama:</strong> {formatNumber(previewQuantities.mainReinforcementLength)} m ({formData.main_reinforcement})
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <strong>Tulangan Sengkang:</strong> {formatNumber(previewQuantities.stirrupLength)} m ({formData.stirrup_reinforcement})
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <strong>Jumlah Sengkang:</strong> {previewQuantities.numberOfStirrups} buah
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Productivity and Settings */}
@@ -1400,61 +1448,186 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
             </div>
           </div>
 
-          {/* Materials Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Input Material (Opsional)
-            </label>
+          {/* Materials Section - 3 Sub Pekerjaan */}
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-gray-900">Material per Sub Pekerjaan</h3>
             
-            {/* Selected Materials */}
-            {materials.length > 0 && (
-              <div className="mb-4 space-y-2">
-                {materials.map((material) => (
-                  <div key={material.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{material.name}</p>
-                      <p className="text-sm text-gray-600">
-                        {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
-                        {material.supplier && ` • ${material.supplier}`}
-                      </p>
+            {/* Beton Materials */}
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
+                <Package className="w-4 h-4 mr-2" />
+                Material Beton
+              </h4>
+              
+              {/* Selected Beton Materials */}
+              {betonMaterials.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {betonMaterials.map((material) => (
+                    <div key={material.id} className="flex items-center space-x-3 p-3 bg-white rounded-lg border">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{material.name}</p>
+                        <p className="text-sm text-gray-600">
+                          {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
+                          {material.supplier && ` • ${material.supplier}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          value={material.quantity}
+                          onChange={(e) => updateMaterialQuantity(material.id, e.target.value, 'beton')}
+                          onFocus={handleInputFocus}
+                          onWheel={(e) => e.target.blur()}
+                          step="0.01"
+                          min="0"
+                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded"
+                          placeholder="Qty"
+                        />
+                        <span className="text-sm text-gray-600">{material.marketUnit}/m³</span>
+                        <button
+                          type="button"
+                          onClick={() => removeMaterial(material.id, 'beton')}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        value={material.quantity}
-                        onChange={(e) => updateMaterialQuantity(material.id, e.target.value)}
-                        onFocus={handleInputFocus}
-                        onWheel={(e) => {
-                          e.target.blur();
-                        }}
-                        step="0.01"
-                        min="0"
-                        className="w-20 px-2 py-1 text-sm border border-gray-300 rounded"
-                        placeholder="Qty"
-                      />
-                      <span className="text-sm text-gray-600">{material.marketUnit}/m³</span>
-                      <button
-                        type="button"
-                        onClick={() => removeMaterial(material.id)}
-                        className="p-1 text-red-600 hover:bg-red-100 rounded"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
 
-            {/* Add Material Button */}
-            <button
-              type="button"
-              onClick={() => setShowMaterialSelector(true)}
-              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-gray-600 hover:text-primary-600"
-            >
-              <Plus className="w-5 h-5 mx-auto mb-1" />
-              <span className="text-sm">Tambah Material</span>
-            </button>
+              {/* Add Beton Material Button */}
+              <button
+                type="button"
+                onClick={() => openMaterialSelector('beton')}
+                disabled={isMaterialsLoading}
+                className="w-full p-3 border-2 border-dashed border-blue-300 rounded-lg hover:border-blue-500 hover:bg-blue-100 transition-colors text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5 mx-auto mb-1" />
+                <span className="text-sm">
+                  {isMaterialsLoading ? 'Memuat Material...' : 'Tambah Material Beton'}
+                </span>
+              </button>
+            </div>
+
+            {/* Bekisting Materials */}
+            <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+              <h4 className="font-semibold text-yellow-900 mb-3 flex items-center">
+                <Package className="w-4 h-4 mr-2" />
+                Material Bekisting
+              </h4>
+              
+              {/* Selected Bekisting Materials */}
+              {bekistingMaterials.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {bekistingMaterials.map((material) => (
+                    <div key={material.id} className="flex items-center space-x-3 p-3 bg-white rounded-lg border">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{material.name}</p>
+                        <p className="text-sm text-gray-600">
+                          {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
+                          {material.supplier && ` • ${material.supplier}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          value={material.quantity}
+                          onChange={(e) => updateMaterialQuantity(material.id, e.target.value, 'bekisting')}
+                          onFocus={handleInputFocus}
+                          onWheel={(e) => e.target.blur()}
+                          step="0.01"
+                          min="0"
+                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded"
+                          placeholder="Qty"
+                        />
+                        <span className="text-sm text-gray-600">{material.marketUnit}/m²</span>
+                        <button
+                          type="button"
+                          onClick={() => removeMaterial(material.id, 'bekisting')}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add Bekisting Material Button */}
+              <button
+                type="button"
+                onClick={() => openMaterialSelector('bekisting')}
+                disabled={isMaterialsLoading}
+                className="w-full p-3 border-2 border-dashed border-yellow-300 rounded-lg hover:border-yellow-500 hover:bg-yellow-100 transition-colors text-yellow-600 hover:text-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5 mx-auto mb-1" />
+                <span className="text-sm">
+                  {isMaterialsLoading ? 'Memuat Material...' : 'Tambah Material Bekisting'}
+                </span>
+              </button>
+            </div>
+
+            {/* Besi Materials */}
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <h4 className="font-semibold text-green-900 mb-3 flex items-center">
+                <Package className="w-4 h-4 mr-2" />
+                Material Besi
+              </h4>
+              
+              {/* Selected Besi Materials */}
+              {besiMaterials.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {besiMaterials.map((material) => (
+                    <div key={material.id} className="flex items-center space-x-3 p-3 bg-white rounded-lg border">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{material.name}</p>
+                        <p className="text-sm text-gray-600">
+                          {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
+                          {material.supplier && ` • ${material.supplier}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          value={material.quantity}
+                          onChange={(e) => updateMaterialQuantity(material.id, e.target.value, 'besi')}
+                          onFocus={handleInputFocus}
+                          onWheel={(e) => e.target.blur()}
+                          step="0.01"
+                          min="0"
+                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded"
+                          placeholder="Qty"
+                        />
+                        <span className="text-sm text-gray-600">{material.marketUnit}/kg</span>
+                        <button
+                          type="button"
+                          onClick={() => removeMaterial(material.id, 'besi')}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add Besi Material Button */}
+              <button
+                type="button"
+                onClick={() => openMaterialSelector('besi')}
+                disabled={isMaterialsLoading}
+                className="w-full p-3 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-100 transition-colors text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-5 h-5 mx-auto mb-1" />
+                <span className="text-sm">
+                  {isMaterialsLoading ? 'Memuat Material...' : 'Tambah Material Besi'}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Action Buttons */}
@@ -1525,8 +1698,6 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-16">Satuan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-32">Bahan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Hari Kerja</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Bahan</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Tukang</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Keuntungan</th>
@@ -1562,12 +1733,6 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                       <td className="border border-gray-300 px-1 py-2 text-center text-xs w-24">
                         {formatNumber(sub.days, 1)} hari
                       </td>
-                      <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                        {formatCurrency(sub.materialCost)}
-                      </td>
-                      <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                        {formatCurrency(sub.laborCost)}
-                      </td>
                       <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-700 text-xs w-24">
                         {formatCurrency(sub.hpp)}
                       </td>
@@ -1585,22 +1750,16 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                       <div className="font-bold text-gray-900">TOTAL</div>
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-16">
-                      -
+                      {formatNumber(calculation.quantities.concreteVolume)}
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-16">
-                      -
+                      m³
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-32">
                       -
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center text-xs w-24">
                       {formatNumber(calculation.totals.days, 1)} hari
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-700 bg-blue-100 text-xs w-24">
-                      {formatCurrency(calculation.totals.materialCost)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-700 bg-blue-100 text-xs w-24">
-                      {formatCurrency(calculation.totals.laborCost)}
                     </td>
                     <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-800 bg-blue-200 text-xs w-24">
                       {formatCurrency(calculation.totals.hpp)}
@@ -1614,6 +1773,100 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Tabel Analisis Harga per Satuan Volume */}
+            <div className="mt-6">
+              <h4 className="font-semibold text-gray-900 text-lg mb-4">Analisis Harga per Satuan Volume</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Sub Pekerjaan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Volume</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB per Satuan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calculation.subPekerjaan.map((sub, index) => {
+                      const hppBahanPerSatuan = sub.volume > 0 ? sub.materialCost / sub.volume : 0;
+                      const rabBahanPerSatuan = hppBahanPerSatuan * (1 + (calculation.profitPercentage / 100));
+                      const hppTukangPerSatuan = sub.volume > 0 ? sub.laborCost / sub.volume : 0;
+                      const rabTukangPerSatuan = hppTukangPerSatuan * (1 + (calculation.profitPercentage / 100));
+                      const hppPerSatuan = sub.volume > 0 ? sub.hpp / sub.volume : 0;
+                      const rabPerSatuan = sub.volume > 0 ? sub.rab / sub.volume : 0;
+
+                      return (
+                        <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="border border-gray-300 px-3 py-2 text-xs font-medium text-gray-900">
+                            {sub.name}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                            {formatNumber(sub.volume)}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                            {sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-600">
+                            {formatCurrency(hppBahanPerSatuan)}/{sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-700">
+                            {formatCurrency(rabBahanPerSatuan)}/{sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-600">
+                            {formatCurrency(hppTukangPerSatuan)}/{sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-700">
+                            {formatCurrency(rabTukangPerSatuan)}/{sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-700">
+                            {formatCurrency(hppPerSatuan)}/{sub.unit}
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-700">
+                            {formatCurrency(rabPerSatuan)}/{sub.unit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* Total Row */}
+                    <tr className="bg-yellow-50 border-t-2 border-yellow-400">
+                      <td className="border border-gray-300 px-3 py-2 text-xs font-bold text-gray-900">
+                        TOTAL
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        {formatNumber(calculation.quantities.concreteVolume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? calculation.totals.materialCost / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? (calculation.totals.materialCost * (1 + (calculation.profitPercentage / 100))) / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? calculation.totals.laborCost / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? (calculation.totals.laborCost * (1 + (calculation.profitPercentage / 100))) / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? calculation.totals.hpp / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.quantities.concreteVolume > 0 ? calculation.totals.rab / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Detail Information */}
@@ -1761,11 +2014,21 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                       <div className="border-t pt-2">
                         <h6 className="font-medium mb-1">Material:</h6>
                         {sub.materials.map((material, matIndex) => (
-                          <div key={matIndex} className="text-xs text-gray-600">
-                            • {material.name}: {formatNumber(material.quantity)} {material.unit}
-                            {material.siQuantity && material.siUnit !== material.unit && (
-                              <span className="text-gray-500"> ({formatNumber(material.siQuantity)} {material.siUnit})</span>
-                            )}
+                          <div key={matIndex} className="text-xs text-gray-600 mb-1">
+                            <div className="font-medium text-gray-800">• {material.name}</div>
+                            <div className="ml-2 space-y-0.5">
+                              <div>Kebutuhan: {formatNumber(material.quantity)} {material.unit}
+                                {material.siQuantity && material.siUnit !== material.unit && (
+                                  <span className="text-gray-500"> ({formatNumber(material.siQuantity)} {material.siUnit})</span>
+                                )}
+                              </div>
+                              <div>Harga: {formatCurrency(material.price)}/{material.unit}
+                                {material.siUnit && material.siUnit !== material.unit && material.conversionFactor && material.conversionFactor !== 1 && (
+                                  <span className="text-gray-500"> (≈ {formatCurrency(material.price / material.conversionFactor)}/{material.siUnit})</span>
+                                )}
+                              </div>
+                              <div className="font-medium text-blue-600">Total: {formatCurrency(material.cost)}</div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1819,6 +2082,8 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
             if (e.target === e.currentTarget) {
               setShowMaterialSelector(false);
               setMaterialSearch('');
+              setCurrentMaterialType('');
+              setSelectedMaterials([]);
             }
           }}
         >
@@ -1828,11 +2093,19 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
           >
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Pilih Material</h3>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Pilih Material</h3>
+                  {currentMaterialType && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Untuk sub pekerjaan: {currentMaterialType === 'beton' ? 'Beton' : currentMaterialType === 'bekisting' ? 'Bekisting' : 'Besi'}
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={() => {
                     setShowMaterialSelector(false);
                     setMaterialSearch('');
+                    setCurrentMaterialType('');
                   }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
@@ -1853,36 +2126,83 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
             </div>
             
             <div className="p-4 max-h-96 overflow-y-auto">
-              {filteredMaterials.length > 0 ? (
+              {isMaterialsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p className="text-gray-500">Memuat material...</p>
+                </div>
+              ) : materialsError ? (
+                <div className="text-center py-8">
+                  <Package className="w-12 h-12 text-red-300 mx-auto mb-4" />
+                  <p className="text-red-500 mb-2">Gagal memuat material</p>
+                  <p className="text-sm text-gray-500">Periksa koneksi internet Anda</p>
+                </div>
+              ) : filteredMaterials.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredMaterials.map((material) => (
-                    <div
-                      key={material.id}
-                      onClick={() => addMaterial(material)}
-                      className="p-3 border border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-gray-900">{material.name}</p>
-                          <p className="text-sm text-gray-600">
-                            {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
-                            {material.supplier && ` • ${material.supplier}`}
-                          </p>
+                  {filteredMaterials.map((material) => {
+                    const isSelected = selectedMaterials.some(m => m.id === material.id);
+                    return (
+                      <div
+                        key={material.id}
+                        onClick={() => toggleMaterialSelection(material)}
+                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'border-primary-500 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-900">{material.name}</p>
+                            <p className="text-sm text-gray-600">
+                              {formatCurrency(material.marketPrice)}/{material.marketUnit} ({formatCurrency(material.siPrice)}/{material.siUnit})
+                              {material.supplier && ` • ${material.supplier}`}
+                            </p>
+                            {material.description && (
+                              <p className="text-xs text-gray-500 mt-1">{material.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center">
+                            {isSelected ? (
+                              <CheckCircle className="w-5 h-5 text-primary-600" />
+                            ) : (
+                              <Plus className="w-5 h-5 text-primary-600" />
+                            )}
+                          </div>
                         </div>
-                        <Plus className="w-5 h-5 text-primary-600" />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8">
                   <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">
-                    {materialSearch ? 'Tidak ada material yang ditemukan' : 'Mulai mengetik untuk mencari material'}
+                    {materialSearch ? 'Tidak ada material yang ditemukan' : 
+                     availableMaterials.length === 0 ? 'Belum ada material tersedia' :
+                     'Mulai mengetik untuk mencari material'}
                   </p>
+                  {availableMaterials.length === 0 && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Hubungi administrator untuk menambahkan material
+                    </p>
+                  )}
                 </div>
               )}
             </div>
+            
+            {/* Add Selected Materials Button */}
+            {selectedMaterials.length > 0 && (
+              <div className="p-4 border-t border-gray-200 bg-gray-50">
+                <button
+                  onClick={addSelectedMaterials}
+                  className="w-full btn-primary flex items-center justify-center space-x-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah {selectedMaterials.length} Material Terpilih</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

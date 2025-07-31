@@ -157,6 +157,11 @@ const JobTypeMaterialModal = ({
                         </h5>
                         <p className="text-sm text-gray-500">
                           Harga: Rp {parseInt(assignment.material_price).toLocaleString('id-ID')}/{assignment.material_unit}
+                          {assignment.conversion_factor && assignment.conversion_factor !== 1 && assignment.base_unit && assignment.base_unit !== assignment.material_unit && (
+                            <span className="text-blue-600 ml-2">
+                              (Rp {Math.round(assignment.material_price / assignment.conversion_factor).toLocaleString('id-ID')}/{assignment.base_unit})
+                            </span>
+                          )}
                         </p>
                         {assignment.conversion_description && (
                           <div className="mt-1">
@@ -272,11 +277,25 @@ const JobTypeMaterialModal = ({
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-xs text-blue-700">
-                      💡 <strong>Catatan:</strong> Faktor pemborosan akan dihitung otomatis oleh kalkulator berdasarkan jenis material dan kondisi proyek. 
-                      Biaya di atas adalah kebutuhan dasar tanpa pemborosan.
-                    </p>
+                  <div className="mt-3 space-y-2">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-xs text-blue-700">
+                        💡 <strong>Catatan:</strong> Faktor pemborosan akan dihitung otomatis oleh kalkulator berdasarkan jenis material dan kondisi proyek. 
+                        Biaya di atas adalah kebutuhan dasar tanpa pemborosan.
+                      </p>
+                    </div>
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-xs text-green-700">
+                        🎯 <strong>Material Utama:</strong> Material yang dicentang sebagai "Material Utama" akan otomatis dimuat di kalkulator. 
+                        Material lainnya dapat ditambahkan secara manual sesuai kebutuhan.
+                      </p>
+                    </div>
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-xs text-yellow-700">
+                        ⚙️ <strong>Opsi Kalkulator:</strong> User dapat memilih "Gunakan material default" untuk menggunakan material sistem + material utama ini, 
+                        atau menonaktifkannya untuk hanya menggunakan material yang dipilih manual.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -389,6 +408,11 @@ const JobTypeMaterialModal = ({
                             </h5>
                             <p className="text-sm text-gray-600">
                               Rp {parseInt(material.price).toLocaleString('id-ID')}/{material.unit}
+                              {material.conversion_factor && material.conversion_factor !== 1 && material.base_unit && material.base_unit !== material.unit && (
+                                <span className="text-blue-600 ml-2">
+                                  (Rp {Math.round(material.price / material.conversion_factor).toLocaleString('id-ID')}/{material.base_unit})
+                                </span>
+                              )}
                             </p>
                             {material.conversion_description && (
                               <div className="mt-1">

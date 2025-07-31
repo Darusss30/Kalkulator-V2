@@ -14,6 +14,8 @@ import {
   Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useQuery } from 'react-query';
+import apiService from '../../services/api';
 
 const LengthCalculator = ({ jobType, onSave }) => {
   const [formData, setFormData] = useState({
@@ -31,6 +33,7 @@ const LengthCalculator = ({ jobType, onSave }) => {
   const [showMaterialSelector, setShowMaterialSelector] = useState(false);
   const [availableMaterials, setAvailableMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
+  const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
@@ -39,17 +42,82 @@ const LengthCalculator = ({ jobType, onSave }) => {
   const TUKANG_RATE = 150000;
   const PEKERJA_RATE = 135000;
 
-  // Load available materials (mock data for now)
-  useEffect(() => {
-    // This would normally fetch from API
-    setAvailableMaterials([
-      { id: 1, name: 'Semen Portland', unit: 'sak', price: 65000, supplier: 'Toko Bangunan A' },
-      { id: 2, name: 'Pasir Halus', unit: 'm3', price: 350000, supplier: 'Supplier Pasir B' },
-      { id: 3, name: 'Kerikil', unit: 'm3', price: 400000, supplier: 'Supplier Batu C' },
-      { id: 4, name: 'Besi Beton 10mm', unit: 'batang', price: 85000, supplier: 'Toko Besi D' },
-      { id: 5, name: 'Kawat Bendrat', unit: 'kg', price: 25000, supplier: 'Toko Bangunan A' }
-    ]);
-  }, []);
+  // Fetch materials from database
+  const {
+    data: materialsData,
+    isLoading: isLoadingMaterials,
+    error: materialsError
+  } = useQuery(
+    ['materials', { limit: 100 }],
+    () => apiService.materials.getMaterials({ limit: 100 }),
+    {
+      onSuccess: (data) => {
+        setAvailableMaterials(data?.data?.materials || []);
+      },
+      onError: (error) => {
+        console.error('Failed to fetch materials:', error);
+        toast.error('Gagal memuat data material');
+        // Fallback to empty array
+        setAvailableMaterials([]);
+      }
+    }
+  );
+
+  // Fetch job-type specific materials if jobType is available
+  const {
+    data: jobTypeMaterialsData,
+    isLoading: isLoadingJobTypeMaterials
+  } = useQuery(
+    ['jobTypeMaterials', jobType?.id],
+    () => apiService.materials.getMaterialsByJobType(jobType.id),
+    {
+      enabled: Boolean(jobType?.id),
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
+      staleTime: 0, // Always fetch fresh data
+      cacheTime: 0, // Don't cache to ensure fresh data
+      onSuccess: (data) => {
+        const jobTypeMaterials = data?.data?.materials || [];
+        if (jobTypeMaterials.length > 0) {
+          // Use job-type specific materials if available
+          setAvailableMaterials(jobTypeMaterials);
+          
+          // Check if materials should be auto-loaded or user should choose
+          const primaryMaterials = jobTypeMaterials.filter(material => material.is_primary);
+          
+          if (primaryMaterials.length > 0) {
+            // Auto-load only primary materials (essential materials like cement, sand)
+            const autoLoadedMaterials = primaryMaterials.map(material => ({
+              ...material,
+              quantity: material.quantity_per_unit // Use exact configured quantity
+            }));
+            setMaterials(autoLoadedMaterials);
+            
+            toast.success(`${primaryMaterials.length} material utama otomatis dimuat untuk ${jobType.name}`);
+            
+            // Show info about optional materials
+            const optionalMaterials = jobTypeMaterials.filter(material => !material.is_primary);
+            if (optionalMaterials.length > 0) {
+              toast(`${optionalMaterials.length} material pilihan tersedia. Klik "Tambah Material" untuk memilih.`, {
+                icon: 'ℹ️',
+                duration: 4000,
+              });
+            }
+          } else {
+            // If no primary materials, show info that user needs to choose
+            toast(`${jobTypeMaterials.length} material tersedia untuk ${jobType.name}. Pilih material yang akan digunakan.`, {
+              icon: 'ℹ️',
+              duration: 4000,
+            });
+          }
+        }
+      },
+      onError: (error) => {
+        console.error('Failed to fetch job type materials:', error);
+        // Don't show error toast for job type materials, fall back to general materials
+      }
+    }
+  );
 
   // Set productivity from jobType when component mounts or jobType changes
   useEffect(() => {
@@ -91,10 +159,41 @@ const LengthCalculator = ({ jobType, onSave }) => {
     e.target.select();
   };
 
+  const toggleMaterialSelection = (material) => {
+    setSelectedMaterials(prev => {
+      const isSelected = prev.some(m => m.id === material.id);
+      if (isSelected) {
+        return prev.filter(m => m.id !== material.id);
+      } else {
+        return [...prev, material];
+      }
+    });
+  };
+
+  const addSelectedMaterials = () => {
+    const newMaterials = selectedMaterials.filter(material => 
+      !materials.some(m => m.id === material.id)
+    ).map(material => ({
+      ...material,
+      quantity: material.quantity_per_unit || 1
+    }));
+    
+    setMaterials(prev => [...prev, ...newMaterials]);
+    setSelectedMaterials([]);
+    setShowMaterialSelector(false);
+    setMaterialSearch('');
+    
+    if (newMaterials.length > 0) {
+      toast.success(`${newMaterials.length} material berhasil ditambahkan`);
+    }
+  };
+
   const addMaterial = (material) => {
     const isAlreadyAdded = materials.some(m => m.id === material.id);
     if (!isAlreadyAdded) {
-      setMaterials(prev => [...prev, { ...material, quantity: 1 }]);
+      // Use configured quantity if available, otherwise default to 1
+      const defaultQuantity = material.quantity_per_unit || 1;
+      setMaterials(prev => [...prev, { ...material, quantity: defaultQuantity }]);
     }
     setShowMaterialSelector(false);
     setMaterialSearch('');
@@ -318,6 +417,9 @@ const LengthCalculator = ({ jobType, onSave }) => {
     material.name.toLowerCase().includes(materialSearch.toLowerCase()) &&
     !materials.some(m => m.id === material.id)
   );
+
+  // Show loading state for materials
+  const isMaterialsLoading = isLoadingMaterials || isLoadingJobTypeMaterials;
 
   return (
     <div className="space-y-6">
@@ -565,6 +667,7 @@ const LengthCalculator = ({ jobType, onSave }) => {
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
+                      {/* Always show quantity input - editable for all materials */}
                       <input
                         type="number"
                         value={material.quantity}
@@ -598,10 +701,13 @@ const LengthCalculator = ({ jobType, onSave }) => {
             <button
               type="button"
               onClick={() => setShowMaterialSelector(true)}
-              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-gray-600 hover:text-primary-600"
+              disabled={isMaterialsLoading}
+              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors text-gray-600 hover:text-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="w-5 h-5 mx-auto mb-1" />
-              <span className="text-sm">Tambah Material</span>
+              <span className="text-sm">
+                {isMaterialsLoading ? 'Memuat Material...' : 'Tambah Material'}
+              </span>
             </button>
           </div>
 
@@ -666,10 +772,6 @@ const LengthCalculator = ({ jobType, onSave }) => {
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-16">Satuan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-32">Bahan</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Tukang</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Bahan</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP Tukang</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB Bahan</th>
-                    <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB Tukang</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">HPP</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">RAB</th>
                     <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-xs w-24">Keuntungan</th>
@@ -709,18 +811,6 @@ const LengthCalculator = ({ jobType, onSave }) => {
                         </div>
                       </div>
                     </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                      {formatCurrency(calculation.hppBahan)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-blue-600 text-xs w-24">
-                      {formatCurrency(calculation.hppTukang)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-green-600 text-xs w-24">
-                      {formatCurrency(calculation.rabBahan)}
-                    </td>
-                    <td className="border border-gray-300 px-1 py-2 text-center font-medium text-green-600 text-xs w-24">
-                      {formatCurrency(calculation.rabTukang)}
-                    </td>
                     <td className="border border-gray-300 px-1 py-2 text-center font-bold text-blue-700 bg-blue-50 text-xs w-24">
                       {formatCurrency(calculation.hpp)}
                     </td>
@@ -733,6 +823,82 @@ const LengthCalculator = ({ jobType, onSave }) => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Analisis Harga per Satuan Volume */}
+            <div className="mt-6">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">Analisis Harga per Satuan Volume</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Volume</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Bahan per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB Tukang per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">HPP per Satuan</th>
+                      <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-xs">RAB per Satuan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="bg-white">
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        {formatNumber(calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        {calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-600">
+                        {formatCurrency(calculation.volume > 0 ? calculation.hppBahan / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-blue-700">
+                        {formatCurrency(calculation.volume > 0 ? calculation.rabBahan / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-600">
+                        {formatCurrency(calculation.volume > 0 ? calculation.hppTukang / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-medium text-green-700">
+                        {formatCurrency(calculation.volume > 0 ? calculation.rabTukang / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-700">
+                        {formatCurrency(calculation.volume > 0 ? calculation.hpp / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-700">
+                        {formatCurrency(calculation.volume > 0 ? calculation.rab / calculation.volume : 0)}/{calculation.satuan}
+                      </td>
+                    </tr>
+                    {/* Total Row */}
+                    <tr className="bg-yellow-50 border-t-2 border-yellow-400">
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-gray-900">
+                        TOTAL
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        -
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.hppBahan)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency(calculation.rabBahan)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.hppTukang)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency(calculation.rabTukang)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.hpp)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.rab)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Detail Information */}
@@ -869,36 +1035,83 @@ const LengthCalculator = ({ jobType, onSave }) => {
             </div>
             
             <div className="p-4 max-h-96 overflow-y-auto">
-              {filteredMaterials.length > 0 ? (
+              {isMaterialsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p className="text-gray-500">Memuat material...</p>
+                </div>
+              ) : materialsError ? (
+                <div className="text-center py-8">
+                  <Package className="w-12 h-12 text-red-300 mx-auto mb-4" />
+                  <p className="text-red-500 mb-2">Gagal memuat material</p>
+                  <p className="text-sm text-gray-500">Periksa koneksi internet Anda</p>
+                </div>
+              ) : filteredMaterials.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredMaterials.map((material) => (
-                    <div
-                      key={material.id}
-                      onClick={() => addMaterial(material)}
-                      className="p-3 border border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-gray-900">{material.name}</p>
-                          <p className="text-sm text-gray-600">
-                            {formatCurrency(material.price)}/{material.unit}
-                            {material.supplier && ` • ${material.supplier}`}
-                          </p>
+                  {filteredMaterials.map((material) => {
+                    const isSelected = selectedMaterials.some(m => m.id === material.id);
+                    return (
+                      <div
+                        key={material.id}
+                        onClick={() => toggleMaterialSelection(material)}
+                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'border-primary-500 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-900">{material.name}</p>
+                            <p className="text-sm text-gray-600">
+                              {formatCurrency(material.price)}/{material.unit}
+                              {material.supplier && ` • ${material.supplier}`}
+                            </p>
+                            {material.description && (
+                              <p className="text-xs text-gray-500 mt-1">{material.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center">
+                            {isSelected ? (
+                              <CheckCircle className="w-5 h-5 text-primary-600" />
+                            ) : (
+                              <Plus className="w-5 h-5 text-primary-600" />
+                            )}
+                          </div>
                         </div>
-                        <Plus className="w-5 h-5 text-primary-600" />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8">
                   <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">
-                    {materialSearch ? 'Tidak ada material yang ditemukan' : 'Mulai mengetik untuk mencari material'}
+                    {materialSearch ? 'Tidak ada material yang ditemukan' : 
+                     availableMaterials.length === 0 ? 'Belum ada material tersedia' :
+                     'Mulai mengetik untuk mencari material'}
                   </p>
+                  {availableMaterials.length === 0 && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Hubungi administrator untuk menambahkan material
+                    </p>
+                  )}
                 </div>
               )}
             </div>
+            
+            {/* Add Selected Materials Button */}
+            {selectedMaterials.length > 0 && (
+              <div className="p-4 border-t border-gray-200 bg-gray-50">
+                <button
+                  onClick={addSelectedMaterials}
+                  className="w-full btn-primary flex items-center justify-center space-x-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah {selectedMaterials.length} Material Terpilih</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
