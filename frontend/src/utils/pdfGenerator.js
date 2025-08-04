@@ -58,7 +58,7 @@ export const generateSingleCalculationPDF = (calculation) => {
     ['Kategori', calculation.category_name || calculation.job_type?.category_name || 'Tidak diketahui'],
     ['Volume', `${formatNumber(calculation.volume || calculation.calculation_data?.input?.volume || 0, 2)} ${calculation.job_type_unit || calculation.job_type?.unit || ''}`],
     ['Produktivitas', `${formatNumber(calculation.productivity || calculation.calculation_data?.input?.productivity || 0, 2)} ${calculation.job_type_unit || calculation.job_type?.unit || ''}/hari`],
-    ['Estimasi Hari Kerja', `${formatNumber(calculation.calculation_data?.input?.estimated_days || 0, 1)} hari`],
+    ['Estimasi Hari Kerja', `${Math.round(calculation.calculation_data?.input?.estimated_days || 0)} hari`],
     ['Persentase Keuntungan', `${calculation.profit_percentage || calculation.calculation_data?.input?.profit_percentage || 0}%`]
   ];
 
@@ -89,7 +89,7 @@ export const generateSingleCalculationPDF = (calculation) => {
         'Tukang',
         `${labor.num_tukang} orang`,
         formatCurrency(labor.tukang_daily_rate || 0),
-        `${formatNumber(calculation.calculation_data?.input?.estimated_days || 0, 1)} hari`,
+        `${Math.round(calculation.calculation_data?.input?.estimated_days || 0)} hari`,
         formatCurrency((labor.num_tukang || 0) * (labor.tukang_daily_rate || 0) * (calculation.calculation_data?.input?.estimated_days || 0))
       ]);
     }
@@ -99,7 +99,7 @@ export const generateSingleCalculationPDF = (calculation) => {
         'Pekerja',
         `${labor.num_pekerja} orang`,
         formatCurrency(labor.pekerja_daily_rate || 0),
-        `${formatNumber(calculation.calculation_data?.input?.estimated_days || 0, 1)} hari`,
+        `${Math.round(calculation.calculation_data?.input?.estimated_days || 0)} hari`,
         formatCurrency((labor.num_pekerja || 0) * (labor.pekerja_daily_rate || 0) * (calculation.calculation_data?.input?.estimated_days || 0))
       ]);
     }

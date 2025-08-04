@@ -12,6 +12,7 @@ const jobRoutes = require('./routes/jobs');
 const calculationRoutes = require('./routes/calculations');
 const materialRoutes = require('./routes/materials');
 const jobTypeManagementRoutes = require('./routes/jobTypeManagement');
+const materialConversionRulesRoutes = require('./routes/materialConversionRules');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -97,6 +98,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/calculations', calculationRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/job-types', jobTypeManagementRoutes);
+app.use('/api/material-conversion-rules', materialConversionRulesRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

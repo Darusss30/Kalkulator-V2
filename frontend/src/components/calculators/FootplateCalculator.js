@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Calculator, 
   Package,
@@ -16,18 +16,20 @@ import {
 import toast from 'react-hot-toast';
 import { useQuery } from 'react-query';
 import apiService from '../../services/api';
+import { getFootplateDefaultMaterials, getMaterialAdjustmentFactor, getMaterialType } from '../../utils/footplateDefaultMaterials';
 
 const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
   const [formData, setFormData] = useState({
     footplate_length: '',
     footplate_width: '',
     footplate_thickness: '',
+    footplate_quantity: '1',
     concrete_cover: '40',
     concrete_quality: 'K225',
     main_reinforcement_x: 'D12',
-    main_reinforcement_y: 'D12',
-    stirrup_spacing_x: '200',
-    stirrup_spacing_y: '200',
+    main_reinforcement_y: 'D10',
+    stirrup_spacing_x: '0.20',
+    stirrup_spacing_y: '0.20',
     productivity: '3',
     profit_percentage: '20',
     waste_factor: '5',
@@ -36,13 +38,13 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
     beton_num_tukang: '1',
     beton_num_pekerja: '2',
     // Bekisting workers
-    bekisting_worker_ratio: '2:1',
-    bekisting_num_tukang: '2',
-    bekisting_num_pekerja: '1',
+    bekisting_worker_ratio: '1:2',
+    bekisting_num_tukang: '1',
+    bekisting_num_pekerja: '2',
     // Besi workers
-    besi_worker_ratio: '1:1',
-    besi_num_tukang: '2',
-    besi_num_pekerja: '1',
+    besi_worker_ratio: '1:2',
+    besi_num_tukang: '1',
+    besi_num_pekerja: '2',
     project_name: '',
   });
 
@@ -59,6 +61,8 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
+  const [previousConcreteQuality, setPreviousConcreteQuality] = useState('K225');
+  const [useDefaultMaterials, setUseDefaultMaterials] = useState(true);
 
   // Fixed rates as specified
   const TUKANG_RATE = 150000;
@@ -257,6 +261,13 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
     }
   );
 
+  // Load default materials when component mounts or when concrete quality/reinforcement changes
+  useEffect(() => {
+    if (useDefaultMaterials) {
+      loadDefaultMaterials();
+    }
+  }, [formData.concrete_quality, formData.main_reinforcement_x, formData.main_reinforcement_y, useDefaultMaterials]);
+
   // Set productivity from jobType when component mounts or jobType changes
   useEffect(() => {
     if (jobType && jobType.base_productivity) {
@@ -266,6 +277,58 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       }));
     }
   }, [jobType]);
+
+  // Function to load default materials
+  const loadDefaultMaterials = () => {
+    const defaultMaterials = getFootplateDefaultMaterials(
+      formData.concrete_quality,
+      formData.main_reinforcement_x,
+      formData.main_reinforcement_y
+    );
+
+    setBetonMaterials(defaultMaterials.beton);
+    setBekistingMaterials(defaultMaterials.bekisting);
+    setBesiMaterials(defaultMaterials.besi);
+
+    // Show notification about loaded materials
+    if (formData.concrete_quality !== previousConcreteQuality) {
+      toast.success(`Material default untuk ${formData.concrete_quality} berhasil dimuat`);
+      setPreviousConcreteQuality(formData.concrete_quality);
+    }
+  };
+
+  // Function to handle concrete quality change with material adjustment
+  const handleConcreteQualityChange = (newQuality) => {
+    if (useDefaultMaterials) {
+      // Update form data
+      setFormData(prev => ({ ...prev, concrete_quality: newQuality }));
+      
+      // Adjust existing materials if they exist
+      if (betonMaterials.length > 0) {
+        const adjustedBetonMaterials = betonMaterials.map(material => {
+          const materialType = getMaterialType(material.name);
+          const adjustmentFactor = getMaterialAdjustmentFactor(
+            previousConcreteQuality, 
+            newQuality, 
+            materialType
+          );
+          
+          return {
+            ...material,
+            quantity: material.quantity_per_unit * adjustmentFactor,
+            quantity_per_unit: material.quantity_per_unit * adjustmentFactor
+          };
+        });
+        
+        setBetonMaterials(adjustedBetonMaterials);
+      }
+      
+      setPreviousConcreteQuality(newQuality);
+      toast.success(`Material disesuaikan untuk kualitas beton ${newQuality}`);
+    } else {
+      setFormData(prev => ({ ...prev, concrete_quality: newQuality }));
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -285,10 +348,11 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
   const calculateFootplateQuantities = useCallback(() => {
     const length = parseFloat(formData.footplate_length) || 0;
     const width = parseFloat(formData.footplate_width) || 0;
-    const thickness = parseFloat(formData.footplate_thickness) || 0; // in mm, convert to m
+    const thickness = parseFloat(formData.footplate_thickness) || 0; // in m
+    const quantity = parseInt(formData.footplate_quantity) || 1; // number of footplates
     const cover = parseFloat(formData.concrete_cover) || 40; // in mm
-    const spacingX = parseFloat(formData.stirrup_spacing_x) || 200; // in mm
-    const spacingY = parseFloat(formData.stirrup_spacing_y) || 200; // in mm
+    const spacingX = parseFloat(formData.stirrup_spacing_x) || 0.20; // in m
+    const spacingY = parseFloat(formData.stirrup_spacing_y) || 0.20; // in m
 
     if (length === 0 || width === 0 || thickness === 0) {
       return {
@@ -297,25 +361,26 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
         reinforcementYLength: 0,
         formworkArea: 0,
         numberOfBarsX: 0,
-        numberOfBarsY: 0
+        numberOfBarsY: 0,
+        quantity: quantity
       };
     }
 
-    // Calculate concrete volume (m³) - thickness converted from mm to m
-    const concreteVolume = length * width * (thickness / 1000);
+    // Calculate concrete volume (m³) - thickness already in m, multiplied by quantity
+    const concreteVolume = length * width * thickness * quantity;
 
     // Calculate reinforcement for X direction
     const effectiveWidth = width - (2 * cover / 1000); // convert mm to m
-    const numberOfBarsX = Math.ceil((effectiveWidth * 1000) / spacingX) + 1; // spacing in mm
-    const reinforcementXLength = numberOfBarsX * length;
+    const numberOfBarsX = Math.ceil(effectiveWidth / spacingX) + 1; // spacing in m
+    const reinforcementXLength = numberOfBarsX * length * quantity; // multiplied by quantity
 
     // Calculate reinforcement for Y direction
     const effectiveLength = length - (2 * cover / 1000); // convert mm to m
-    const numberOfBarsY = Math.ceil((effectiveLength * 1000) / spacingY) + 1; // spacing in mm
-    const reinforcementYLength = numberOfBarsY * width;
+    const numberOfBarsY = Math.ceil(effectiveLength / spacingY) + 1; // spacing in m
+    const reinforcementYLength = numberOfBarsY * width * quantity; // multiplied by quantity
 
-    // Calculate formwork area (m²) - only bottom area for footplate
-    const formworkArea = length * width;
+    // Calculate formwork area (m²) - only bottom area for footplate, multiplied by quantity
+    const formworkArea = length * width * quantity;
 
     return {
       concreteVolume,
@@ -323,9 +388,10 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       reinforcementYLength,
       formworkArea,
       numberOfBarsX,
-      numberOfBarsY
+      numberOfBarsY,
+      quantity
     };
-  }, [formData.footplate_length, formData.footplate_width, formData.footplate_thickness, formData.concrete_cover, formData.stirrup_spacing_x, formData.stirrup_spacing_y]);
+  }, [formData.footplate_length, formData.footplate_width, formData.footplate_thickness, formData.footplate_quantity, formData.concrete_cover, formData.stirrup_spacing_x, formData.stirrup_spacing_y]);
 
   const getCurrentMaterials = () => {
     switch (currentMaterialType) {
@@ -428,8 +494,20 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       newErrors.footplate_width = 'Lebar foot plat harus diisi dan lebih dari 0';
     }
 
-    if (!formData.footplate_thickness || parseFloat(formData.footplate_thickness) <= 0) {
+    const thickness = parseFloat(formData.footplate_thickness);
+    if (!formData.footplate_thickness || isNaN(thickness) || thickness <= 0) {
       newErrors.footplate_thickness = 'Tebal foot plat harus diisi dan lebih dari 0';
+    } else if (thickness < 0.05) {
+      newErrors.footplate_thickness = 'Tebal foot plat minimal 0.05 m';
+    } else if (thickness > 2.0) {
+      newErrors.footplate_thickness = 'Tebal foot plat maksimal 2.0 m';
+    }
+
+    const quantity = parseInt(formData.footplate_quantity);
+    if (!formData.footplate_quantity || isNaN(quantity) || quantity <= 0) {
+      newErrors.footplate_quantity = 'Banyak titik harus diisi dan lebih dari 0';
+    } else if (quantity > 100) {
+      newErrors.footplate_quantity = 'Banyak titik maksimal 100 buah';
     }
 
     const cover = parseFloat(formData.concrete_cover);
@@ -482,13 +560,13 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
     }
 
     const spacingX = parseFloat(formData.stirrup_spacing_x);
-    if (isNaN(spacingX) || spacingX < 100 || spacingX > 300) {
-      newErrors.stirrup_spacing_x = 'Jarak sengkang arah X harus antara 100-300 mm';
+    if (isNaN(spacingX) || spacingX < 0.10 || spacingX > 0.30) {
+      newErrors.stirrup_spacing_x = 'Jarak sengkang arah X harus antara 0.10-0.30 m';
     }
 
     const spacingY = parseFloat(formData.stirrup_spacing_y);
-    if (isNaN(spacingY) || spacingY < 100 || spacingY > 300) {
-      newErrors.stirrup_spacing_y = 'Jarak sengkang arah Y harus antara 100-300 mm';
+    if (isNaN(spacingY) || spacingY < 0.10 || spacingY > 0.30) {
+      newErrors.stirrup_spacing_y = 'Jarak sengkang arah Y harus antara 0.10-0.30 m';
     }
 
     setErrors(newErrors);
@@ -534,7 +612,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       
       const betonProductivity = parseFloat(formData.productivity) || 0.5; // m³/hari
       const adjustedBetonProductivity = betonTeams > 0 ? betonProductivity * betonTeams : betonProductivity;
-      const betonDays = adjustedBetonProductivity > 0 ? footplateQuantities.concreteVolume / adjustedBetonProductivity : 0;
+      const betonDays = adjustedBetonProductivity > 0 ? Math.ceil(footplateQuantities.concreteVolume / adjustedBetonProductivity) : 0;
       const betonLaborCost = betonDailyLaborCost * betonDays;
 
       // Beton materials (cement, sand, gravel)
@@ -613,7 +691,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       
       const bekistingProductivity = 10; // m²/hari
       const adjustedBekistingProductivity = bekistingTeams > 0 ? bekistingProductivity * bekistingTeams : bekistingProductivity;
-      const bekistingDays = adjustedBekistingProductivity > 0 ? footplateQuantities.formworkArea / adjustedBekistingProductivity : 0;
+      const bekistingDays = adjustedBekistingProductivity > 0 ? Math.ceil(footplateQuantities.formworkArea / adjustedBekistingProductivity) : 0;
       const bekistingLaborCost = bekistingDailyLaborCost * bekistingDays;
 
       // Bekisting materials
@@ -669,7 +747,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
       const totalReinforcementWeight = xWeight + yWeight;
 
       const adjustedBesiProductivity = besiTeams > 0 ? besiProductivity * besiTeams : besiProductivity;
-      const besiDays = adjustedBesiProductivity > 0 ? totalReinforcementWeight / adjustedBesiProductivity : 0;
+      const besiDays = adjustedBesiProductivity > 0 ? Math.ceil(totalReinforcementWeight / adjustedBesiProductivity) : 0;
       const besiLaborCost = besiDailyLaborCost * besiDays;
 
       // Besi materials
@@ -723,6 +801,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
           length: parseFloat(formData.footplate_length),
           width: parseFloat(formData.footplate_width),
           thickness: parseFloat(formData.footplate_thickness),
+          quantity: parseInt(formData.footplate_quantity),
           cover: parseFloat(formData.concrete_cover)
         },
         reinforcement: {
@@ -932,7 +1011,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
               <Ruler className="w-4 h-4 mr-2" />
               Dimensi Foot Plat
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Panjang Foot Plat (m) *
@@ -983,7 +1062,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tebal Foot Plat (mm) *
+                  Tebal Foot Plat (m) *
                 </label>
                 <input
                   type="number"
@@ -994,15 +1073,39 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                   onWheel={(e) => {
                     e.target.blur();
                   }}
-                  step="10"
-                  min="100"
+                  step="0.01"
+                  min="0.05"
                   required
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                     errors.footplate_thickness ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="Contoh: 300"
+                  placeholder="Contoh: 0.25"
                 />
                 {errors.footplate_thickness && <p className="text-red-500 text-sm mt-1">{errors.footplate_thickness}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Banyak Titik *
+                </label>
+                <input
+                  type="number"
+                  name="footplate_quantity"
+                  value={formData.footplate_quantity}
+                  onChange={handleInputChange}
+                  onFocus={handleInputFocus}
+                  onWheel={(e) => {
+                    e.target.blur();
+                  }}
+                  step="1"
+                  min="1"
+                  required
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                    errors.footplate_quantity ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Contoh: 4"
+                />
+                {errors.footplate_quantity && <p className="text-red-500 text-sm mt-1">{errors.footplate_quantity}</p>}
               </div>
             </div>
 
@@ -1012,10 +1115,16 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
               return previewQuantities.concreteVolume > 0 && (
                 <div className="mt-3 p-3 bg-white rounded border">
                   <p className="text-sm text-gray-600">
-                    <strong>Volume Beton:</strong> {formatNumber(previewQuantities.concreteVolume)} m³
+                    <strong>Banyak Titik:</strong> {previewQuantities.quantity} buah
                   </p>
                   <p className="text-sm text-gray-600">
-                    <strong>Luas Bekisting:</strong> {formatNumber(previewQuantities.formworkArea)} m²
+                    <strong>Volume Beton Total:</strong> {formatNumber(previewQuantities.concreteVolume)} m³
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <strong>Luas Bekisting Total:</strong> {formatNumber(previewQuantities.formworkArea)} m²
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Per titik: {formatNumber(previewQuantities.concreteVolume / previewQuantities.quantity)} m³ beton, {formatNumber(previewQuantities.formworkArea / previewQuantities.quantity)} m² bekisting
                   </p>
                 </div>
               );
@@ -1038,7 +1147,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                 <select
                   name="concrete_quality"
                   value={formData.concrete_quality}
-                  onChange={handleInputChange}
+                  onChange={(e) => handleConcreteQualityChange(e.target.value)}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
@@ -1048,17 +1157,6 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                     </option>
                   ))}
                 </select>
-                {formData.concrete_quality !== 'K225' && (
-                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                    <div className="flex items-center text-yellow-800">
-                      <Info className="w-3 h-3 mr-1" />
-                      <span className="font-medium">Penyesuaian Otomatis:</span>
-                    </div>
-                    <p className="text-yellow-700 mt-1">
-                      Material dari konfigurasi (basis K-225) akan disesuaikan otomatis untuk {formData.concrete_quality}
-                    </p>
-                  </div>
-                )}
               </div>
 
               <div>
@@ -1082,7 +1180,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Jarak Sengkang Arah X (mm) *
+                  Jarak Sengkang Arah X (m) *
                 </label>
                 <input
                   type="number"
@@ -1093,14 +1191,14 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                   onWheel={(e) => {
                     e.target.blur();
                   }}
-                  step="10"
-                  min="100"
-                  max="300"
+                  step="0.01"
+                  min="0.10"
+                  max="0.30"
                   required
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                     errors.stirrup_spacing_x ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="200"
+                  placeholder="0.20"
                 />
                 {errors.stirrup_spacing_x && <p className="text-red-500 text-sm mt-1">{errors.stirrup_spacing_x}</p>}
               </div>
@@ -1154,7 +1252,7 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Jarak Sengkang Arah Y (mm) *
+                  Jarak Sengkang Arah Y (m) *
                 </label>
                 <input
                   type="number"
@@ -1165,14 +1263,14 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                   onWheel={(e) => {
                     e.target.blur();
                   }}
-                  step="10"
-                  min="100"
-                  max="300"
+                  step="0.01"
+                  min="0.10"
+                  max="0.30"
                   required
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                     errors.stirrup_spacing_y ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="200"
+                  placeholder="0.20"
                 />
                 {errors.stirrup_spacing_y && <p className="text-red-500 text-sm mt-1">{errors.stirrup_spacing_y}</p>}
               </div>
@@ -1477,15 +1575,23 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
             </div>
           </div>
 
+
           {/* Materials Section - 3 Sub Pekerjaan */}
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-gray-900">Material per Sub Pekerjaan</h3>
             
             {/* Beton Materials */}
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
-                Material Beton
-              </h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-blue-900 flex items-center">
+                  Material Beton
+                </h4>
+                {useDefaultMaterials && betonMaterials.length > 0 && (
+                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                    Default {formData.concrete_quality}
+                  </span>
+                )}
+              </div>
               
               {/* Selected Beton Materials */}
               {betonMaterials.length > 0 && (
@@ -1541,9 +1647,16 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
             {/* Bekisting Materials */}
             <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-              <h4 className="font-semibold text-yellow-900 mb-3 flex items-center">
-                Material Bekisting
-              </h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-yellow-900 flex items-center">
+                  Material Bekisting
+                </h4>
+                {useDefaultMaterials && bekistingMaterials.length > 0 && (
+                  <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                    Default Standard
+                  </span>
+                )}
+              </div>
               
               {/* Selected Bekisting Materials */}
               {bekistingMaterials.length > 0 && (
@@ -1599,9 +1712,16 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
 
             {/* Besi Materials */}
             <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-              <h4 className="font-semibold text-green-900 mb-3 flex items-center">
-                Material Besi
-              </h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-green-900 flex items-center">
+                  Material Besi
+                </h4>
+                {useDefaultMaterials && besiMaterials.length > 0 && (
+                  <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">
+                    Default {formData.main_reinforcement_x}/{formData.main_reinforcement_y}
+                  </span>
+                )}
+              </div>
               
               {/* Selected Besi Materials */}
               {besiMaterials.length > 0 && (
@@ -1710,7 +1830,8 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
               <p className="text-gray-600 mt-2">Proyek: {calculation.projectName}</p>
             )}
             <div className="mt-2 text-sm text-gray-600">
-              <p>Dimensi: {calculation.footplateDimensions.length}m × {calculation.footplateDimensions.width}m × {calculation.footplateDimensions.thickness}mm</p>
+              <p>Dimensi: {calculation.footplateDimensions.length}m × {calculation.footplateDimensions.width}m × {calculation.footplateDimensions.thickness}m</p>
+              <p>Banyak Titik: {calculation.footplateDimensions.quantity} buah</p>
               <p>Tulangan: {calculation.reinforcement.xDirection} (arah X), {calculation.reinforcement.yDirection} (arah Y)</p>
             </div>
           </div>
@@ -1931,19 +2052,27 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                   </div>
                   <div className="flex justify-between">
                     <span>Tebal:</span>
-                    <span className="font-medium">{calculation.footplateDimensions.thickness} mm</span>
+                    <span className="font-medium">{calculation.footplateDimensions.thickness} m</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Banyak Titik:</span>
+                    <span className="font-medium">{calculation.footplateDimensions.quantity} buah</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Selimut:</span>
                     <span className="font-medium">{calculation.footplateDimensions.cover} mm</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
-                    <span className="font-semibold">Volume Beton:</span>
+                    <span className="font-semibold">Volume Beton Total:</span>
                     <span className="font-bold text-blue-600">{formatNumber(calculation.footplateQuantities.concreteVolume)} m³</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="font-semibold">Luas Bekisting:</span>
+                    <span className="font-semibold">Luas Bekisting Total:</span>
                     <span className="font-bold text-blue-600">{formatNumber(calculation.footplateQuantities.formworkArea)} m²</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 border-t pt-2">
+                    <span>Per titik:</span>
+                    <span>{formatNumber(calculation.footplateQuantities.concreteVolume / calculation.footplateDimensions.quantity)} m³, {formatNumber(calculation.footplateQuantities.formworkArea / calculation.footplateDimensions.quantity)} m²</span>
                   </div>
                 </div>
               </div>
@@ -1970,11 +2099,11 @@ const FootplateCalculator = ({ jobType, onCalculationComplete }) => {
                   </div>
                   <div className="flex justify-between">
                     <span>Jarak X:</span>
-                    <span className="font-medium">{calculation.reinforcement.spacingX} mm</span>
+                    <span className="font-medium">{calculation.reinforcement.spacingX} m</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Jarak Y:</span>
-                    <span className="font-medium">{calculation.reinforcement.spacingY} mm</span>
+                    <span className="font-medium">{calculation.reinforcement.spacingY} m</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="font-semibold">Total Berat:</span>

@@ -13,11 +13,13 @@ import {
   Cone,
   Pyramid,
   Cuboid,
-  Download
+  Download,
+  Edit
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useQuery } from 'react-query';
 import apiService from '../../services/api';
+import MaterialConversionModal from '../MaterialConversionModal';
 
 const VolumeCalculator = ({ jobType, onSave }) => {
   const [formData, setFormData] = useState({
@@ -68,6 +70,8 @@ const VolumeCalculator = ({ jobType, onSave }) => {
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
+  const [showMaterialEditModal, setShowMaterialEditModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState(null);
 
   // Fixed rates as specified
   const TUKANG_RATE = 150000;
@@ -325,14 +329,166 @@ const VolumeCalculator = ({ jobType, onSave }) => {
     setMaterialSearch('');
   };
 
+  // Function to save material conversion data to database
+  const saveMaterialConversion = async (materialId, conversionData) => {
+    try {
+      const material = materials.find(m => m.id === materialId);
+      if (!material) return;
+
+      // Update material with new conversion data
+      const updatedMaterialData = {
+        ...material,
+        conversion_factor: conversionData.conversion_factor,
+        base_unit: conversionData.base_unit,
+        conversion_description: conversionData.conversion_description,
+        price: conversionData.price || material.price
+      };
+
+      // Save to database via materials API
+      await apiService.put(`/materials/${materialId}`, updatedMaterialData);
+      
+      // Update local state
+      setMaterials(prev => prev.map(m => 
+        m.id === materialId ? { ...m, ...updatedMaterialData } : m
+      ));
+
+      toast.success(`Konversi material ${material.name} berhasil disimpan`, {
+        duration: 2000,
+        position: 'bottom-right'
+      });
+
+    } catch (error) {
+      console.error('Error saving material conversion:', error);
+      toast.error(`Gagal menyimpan konversi material: ${error.message}`, {
+        duration: 3000,
+        position: 'bottom-right'
+      });
+    }
+  };
+
+  // Function to handle material editing with conversion data
+  const handleEditMaterial = async (materialId, updatedData) => {
+    try {
+      // Update material in database
+      await apiService.put(`/materials/${materialId}`, updatedData);
+      
+      // Update local state
+      setMaterials(prev => prev.map(m => 
+        m.id === materialId ? { ...m, ...updatedData } : m
+      ));
+
+      toast.success('Material berhasil diperbarui', {
+        duration: 2000,
+        position: 'bottom-right'
+      });
+
+    } catch (error) {
+      console.error('Error updating material:', error);
+      toast.error(`Gagal memperbarui material: ${error.message}`, {
+        duration: 3000,
+        position: 'bottom-right'
+      });
+    }
+  };
+
+  // Function to open material edit modal
+  const openMaterialEditModal = (material) => {
+    setEditingMaterial(material);
+    setShowMaterialEditModal(true);
+  };
+
+  // Function to close material edit modal
+  const closeMaterialEditModal = () => {
+    setEditingMaterial(null);
+    setShowMaterialEditModal(false);
+  };
+
+  // Function to handle material edit submission
+  const handleMaterialEditSubmit = async (updatedMaterialData) => {
+    if (!editingMaterial) return;
+
+    try {
+      // Update material in database
+      await apiService.put(`/materials/${editingMaterial.id}`, updatedMaterialData);
+      
+      // Update local state
+      setMaterials(prev => prev.map(m => 
+        m.id === editingMaterial.id ? { ...m, ...updatedMaterialData } : m
+      ));
+
+      // Close modal
+      closeMaterialEditModal();
+
+      toast.success(`Material ${updatedMaterialData.name} berhasil diperbarui`, {
+        duration: 2000,
+        position: 'bottom-right'
+      });
+
+      // If this is a job-type material, also update the job type assignment
+      if (jobType?.id && editingMaterial.quantity_per_unit !== undefined) {
+        await updateMaterialQuantity(editingMaterial.id, editingMaterial.quantity);
+      }
+
+    } catch (error) {
+      console.error('Error updating material:', error);
+      toast.error(`Gagal memperbarui material: ${error.message}`, {
+        duration: 3000,
+        position: 'bottom-right'
+      });
+    }
+  };
+
   const removeMaterial = (materialId) => {
     setMaterials(prev => prev.filter(m => m.id !== materialId));
   };
 
-  const updateMaterialQuantity = (materialId, quantity) => {
+  const updateMaterialQuantity = async (materialId, quantity) => {
+    const updatedQuantity = parseFloat(quantity) || 0;
+    
+    // Update local state immediately for responsive UI
     setMaterials(prev => prev.map(m => 
-      m.id === materialId ? { ...m, quantity: parseFloat(quantity) || 0 } : m
+      m.id === materialId ? { ...m, quantity: updatedQuantity } : m
     ));
+
+    // Save to database if this is a job-type specific material
+    if (jobType?.id) {
+      try {
+        // Check if this material is assigned to the current job type
+        const material = materials.find(m => m.id === materialId);
+        if (material && material.quantity_per_unit !== undefined) {
+          // This is a job-type material assignment, update it in the database
+          await apiService.put(`/job-type-management/${jobType.id}/materials`, {
+            material_assignments: materials.map(m => 
+              m.id === materialId 
+                ? {
+                    material_id: m.id,
+                    quantity_per_unit: updatedQuantity,
+                    waste_factor: m.waste_factor || 0,
+                    is_primary: m.is_primary || false
+                  }
+                : {
+                    material_id: m.id,
+                    quantity_per_unit: m.quantity,
+                    waste_factor: m.waste_factor || 0,
+                    is_primary: m.is_primary || false
+                  }
+            )
+          });
+          
+          // Show success feedback
+          toast.success(`Kebutuhan material ${material.name} berhasil disimpan`, {
+            duration: 2000,
+            position: 'bottom-right'
+          });
+        }
+      } catch (error) {
+        console.error('Error saving material quantity:', error);
+        toast.error(`Gagal menyimpan perubahan: ${error.message}`, {
+          duration: 3000,
+          position: 'bottom-right'
+        });
+      }
+    }
   };
 
   const validateForm = () => {
@@ -411,7 +567,7 @@ const VolumeCalculator = ({ jobType, onSave }) => {
       
       // Ensure we have at least some productivity even with 0 teams
       const adjustedProductivity = numberOfTeams > 0 ? productivity * numberOfTeams : productivity;
-      const estimatedDays = adjustedProductivity > 0 ? volume / adjustedProductivity : 0;
+      const estimatedDays = adjustedProductivity > 0 ? Math.ceil(volume / adjustedProductivity) : 0;
       const totalLaborCost = dailyLaborCost * estimatedDays;
 
       // Calculate material costs
@@ -1234,6 +1390,14 @@ const VolumeCalculator = ({ jobType, onSave }) => {
                       <span className="text-sm text-gray-600">{material.unit}/m³</span>
                       <button
                         type="button"
+                        onClick={() => openMaterialEditModal(material)}
+                        className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                        title="Edit Material & Konversi"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => removeMaterial(material.id)}
                         className="p-1 text-red-600 hover:bg-red-100 rounded"
                       >
@@ -1663,6 +1827,15 @@ const VolumeCalculator = ({ jobType, onSave }) => {
           </div>
         </div>
       )}
+
+      {/* Material Edit Modal */}
+      <MaterialConversionModal
+        isOpen={showMaterialEditModal}
+        onClose={closeMaterialEditModal}
+        onSubmit={handleMaterialEditSubmit}
+        material={editingMaterial}
+        isLoading={false}
+      />
     </div>
   );
 };

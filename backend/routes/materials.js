@@ -271,7 +271,10 @@ router.post('/', validateMaterial, async (req, res) => {
       brick_height,
       mortar_thickness,
       wall_thickness,
-      waste_factor
+      waste_factor,
+      // Volume job requirement fields
+      usage_per_unit,
+      job_unit
     } = req.body;
     
     // Check if material with same name and unit already exists
@@ -294,8 +297,9 @@ router.post('/', validateMaterial, async (req, res) => {
         conversion_factor, base_unit, conversion_description,
         pieces_per_unit, piece_dimensions, coverage_per_unit,
         material_type, brick_length, brick_width, brick_height,
-        mortar_thickness, wall_thickness, waste_factor
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        mortar_thickness, wall_thickness, waste_factor,
+        usage_per_unit, job_unit
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, 
         unit, 
@@ -314,7 +318,9 @@ router.post('/', validateMaterial, async (req, res) => {
         brick_height || null,
         mortar_thickness || 10,
         wall_thickness || 150,
-        waste_factor || 0.0
+        waste_factor || 0.0,
+        usage_per_unit || null,
+        job_unit || 'm³'
       ]
     );
     
@@ -360,7 +366,10 @@ router.put('/:id', validateId, validateMaterial, async (req, res) => {
       brick_height,
       mortar_thickness,
       wall_thickness,
-      waste_factor
+      waste_factor,
+      // Volume job requirement fields
+      usage_per_unit,
+      job_unit
     } = req.body;
     
     // Check if material exists
@@ -412,6 +421,8 @@ router.put('/:id', validateId, validateMaterial, async (req, res) => {
         mortar_thickness = ?,
         wall_thickness = ?,
         waste_factor = ?,
+        usage_per_unit = ?,
+        job_unit = ?,
         updated_at = CURRENT_TIMESTAMP 
       WHERE id = ?`,
       [
@@ -433,6 +444,8 @@ router.put('/:id', validateId, validateMaterial, async (req, res) => {
         mortar_thickness || 10,
         wall_thickness || 150,
         waste_factor || 0.0,
+        usage_per_unit || null,
+        job_unit || 'm³',
         materialId
       ]
     );

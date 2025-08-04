@@ -289,7 +289,7 @@ const LengthCalculator = ({ jobType, onSave }) => {
       
       // Ensure we have at least some productivity even with 0 teams
       const adjustedProductivity = numberOfTeams > 0 ? productivity * numberOfTeams : productivity;
-      const estimatedDays = adjustedProductivity > 0 ? volume / adjustedProductivity : 0;
+      const estimatedDays = adjustedProductivity > 0 ? Math.ceil(volume / adjustedProductivity) : 0;
       const totalLaborCost = dailyLaborCost * estimatedDays;
 
       // Calculate material costs

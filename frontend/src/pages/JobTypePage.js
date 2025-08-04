@@ -135,6 +135,13 @@ const JobTypePage = () => {
       description: 'Kalkulator khusus untuk menghitung biaya pekerjaan footplate beton bertulang dengan tulangan dua arah',
       icon: Building,
       color: 'indigo'
+    },
+    {
+      id: 'plaster',
+      name: 'Kalkulator Plamiran',
+      description: 'Kalkulator khusus untuk menghitung biaya pekerjaan plamiran dengan material standar per lapis (Lapis 1, 2, dan 3)',
+      icon: Package,
+      color: 'orange'
     }
   ]
   
@@ -669,6 +676,75 @@ const JobTypePage = () => {
         };
         break;
         
+      case 'plaster':
+        calculatorConfig = {
+          type: 'plaster',
+          redirect_url: '/plaster-calculator',
+          fields: [
+            { name: 'project_name', label: 'Nama Proyek', unit: '', required: false, placeholder: 'Opsional' },
+            { name: 'area', label: 'Luas', unit: 'm²', required: true, min: 0.01, step: 0.01 },
+            { name: 'productivity', label: 'Produktivitas', unit: 'm²/hari', required: true, min: 0.01, step: 0.01 },
+            { name: 'profit_percentage', label: 'Keuntungan', unit: '%', required: true, default: 20, min: 0, step: 0.1 },
+            { name: 'waste_factor', label: 'Faktor Pemborosan', unit: '%', required: true, default: 5, min: 0, step: 0.1 },
+            { name: 'num_tukang', label: 'Jumlah Tukang', unit: 'orang', required: true, default: 1, min: 0, type: 'integer' },
+            { name: 'num_pekerja', label: 'Jumlah Pekerja', unit: 'orang', required: true, default: 1, min: 0, type: 'integer' },
+            { name: 'worker_ratio_display', label: 'Rasio Pekerja', unit: 'tukang:pekerja', required: true, default: '1:1', type: 'select', options: ['0:1', '1:1', '1:2', '2:1', '1:3', '3:1', '2:3', '3:2'] }
+          ],
+          calculation: 'plaster_calculation_all_layers',
+          description: 'Kalkulator plamiran dengan perhitungan semua lapis (1, 2, dan 3) sekaligus dengan material standar dan input tenaga kerja detail',
+          features: [
+            'all_layers_calculation',
+            'fixed_material_ratios',
+            'material_input_optional', 
+            'labor_calculation_with_ratio', 
+            'hpp_rab_output_detailed', 
+            'table_format_new',
+            'waste_factor_calculation',
+            'profit_margin_calculation'
+          ],
+          output_format: {
+            type: 'table',
+            columns: ['Luas', 'Satuan', 'Bahan', 'Tukang', 'HPP', 'RAB', 'Keuntungan'],
+            details: ['all_layers_info', 'labor_breakdown', 'material_breakdown', 'summary_cards']
+          },
+          labor_rates: {
+            tukang: 150000,
+            pekerja: 135000
+          },
+          plaster_layers: {
+            layer1: {
+              name: 'Lapis 1',
+              description: 'Lapis dasar plamiran',
+              baseArea: 30,
+              materials: [
+                { name: 'Adamix', quantity: 1, unit: 'sak' },
+                { name: 'Giant', quantity: 2, unit: 'sak' },
+                { name: 'Lem rajawali', quantity: 5, unit: 'bungkus' }
+              ]
+            },
+            layer2: {
+              name: 'Lapis 2',
+              description: 'Lapis tengah plamiran',
+              baseArea: 30,
+              materials: [
+                { name: 'Adamix', quantity: 1, unit: 'sak' },
+                { name: 'Giant', quantity: 3, unit: 'sak' },
+                { name: 'Lem rajawali', quantity: 4, unit: 'bungkus' }
+              ]
+            },
+            layer3: {
+              name: 'Lapis 3',
+              description: 'Lapis finishing plamiran',
+              baseArea: 25,
+              materials: [
+                { name: 'Giant', quantity: 2, unit: 'sak' },
+                { name: 'Lem rajawali', quantity: 5, unit: 'bungkus' }
+              ]
+            }
+          }
+        };
+        break;
+        
       default:
         calculatorConfig = null;
     }
@@ -885,6 +961,7 @@ const JobTypePage = () => {
                                 if (config.type === 'volume') return 'bg-blue-100 text-blue-700';
                                 if (config.type === 'beam') return 'bg-purple-100 text-purple-700';
                                 if (config.type === 'footplate') return 'bg-indigo-100 text-indigo-700';
+                                if (config.type === 'plaster') return 'bg-orange-100 text-orange-700';
                                 return 'bg-gray-100 text-gray-700';
                               } catch {
                                 return 'bg-gray-100 text-gray-700';
@@ -898,6 +975,7 @@ const JobTypePage = () => {
                                   if (config.type === 'volume') return 'Volume';
                                   if (config.type === 'beam') return 'Struktur';
                                   if (config.type === 'footplate') return 'Footplate';
+                                  if (config.type === 'plaster') return 'Plamiran';
                                   return 'Custom';
                                 } catch {
                                   return 'Custom';
@@ -1095,6 +1173,7 @@ const JobTypePage = () => {
                     if (config.type === 'volume') return calc.id === 'volume';
                     if (config.type === 'beam') return calc.id === 'beam';
                     if (config.type === 'footplate') return calc.id === 'footplate';
+                    if (config.type === 'plaster') return calc.id === 'plaster';
                     return null;
                   });
 
@@ -1136,7 +1215,7 @@ const JobTypePage = () => {
 
               {/* Calculator Options */}
               <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {calculatorTypes.map((calculator) => {
                     const IconComponent = calculator.icon;
                     const colorClasses = {

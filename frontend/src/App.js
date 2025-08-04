@@ -22,6 +22,7 @@ const AreaCalculatorPage = React.lazy(() => import('./pages/AreaCalculatorPage')
 const VolumeCalculatorPage = React.lazy(() => import('./pages/VolumeCalculatorPage'));
 const BeamCalculatorPage = React.lazy(() => import('./pages/BeamCalculatorPage'));
 const FootplateCalculatorPage = React.lazy(() => import('./pages/FootplateCalculatorPage'));
+const PlasterCalculatorPage = React.lazy(() => import('./pages/PlasterCalculatorPage'));
 
 // Loading fallback component
 const PageLoadingFallback = () => (
@@ -93,6 +94,10 @@ function App() {
               <Route 
                 path="/footplate-calculator" 
                 element={<FootplateCalculatorPage />} 
+              />
+              <Route 
+                path="/plaster-calculator" 
+                element={<PlasterCalculatorPage />} 
               />
             </Route>
             

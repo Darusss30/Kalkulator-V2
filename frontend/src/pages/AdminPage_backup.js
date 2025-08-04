@@ -441,6 +441,7 @@ const AdminPage = () => {
                   value={activeTab === 'materials' ? searchQuery : jobTypesSearchQuery}
                   onChange={activeTab === 'materials' ? handleSearch : handleJobTypesSearch}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  disabled={activeTab === 'conversion-rules'}
                 />
               </div>
               
@@ -482,6 +483,7 @@ const AdminPage = () => {
                     </button>
                   ) : (
                     <button
+                      onClick={() => setShowConversionRulesModal(true)}
                       className="btn-primary flex items-center space-x-2"
                     >
                       <Settings className="w-4 h-4" />
@@ -759,6 +761,7 @@ const AdminPage = () => {
                   </ul>
                 </div>
                 <button
+                  onClick={() => setShowConversionRulesModal(true)}
                   className="btn-primary flex items-center space-x-2 mx-auto"
                 >
                   <Settings className="w-5 h-5" />
@@ -914,6 +917,10 @@ const AdminPage = () => {
         )}
         
         {/* Material Conversion Rules Modal */}
+        {showConversionRulesModal && (
+          <MaterialConversionRulesModal
+            isOpen={showConversionRulesModal}
+            onClose={() => setShowConversionRulesModal(false)}
           />
         )}
       </div>

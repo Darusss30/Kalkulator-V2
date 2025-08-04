@@ -19,6 +19,7 @@ import {
 import toast from 'react-hot-toast';
 import { useQuery } from 'react-query';
 import apiService from '../../services/api';
+import { getBeamDefaultMaterials } from '../../utils/beamDefaultMaterials';
 
 const BeamCalculator = ({ jobType, onCalculationComplete }) => {
   const [formData, setFormData] = useState({
@@ -278,6 +279,28 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
       }));
     }
   }, [jobType]);
+
+  // Load default materials when component mounts or when concrete quality/reinforcement changes
+  useEffect(() => {
+    if (formData.concrete_quality && formData.main_reinforcement && formData.stirrup_reinforcement) {
+      const defaultMaterials = getBeamDefaultMaterials(
+        formData.concrete_quality,
+        formData.main_reinforcement,
+        formData.stirrup_reinforcement
+      );
+      
+      // Only set default materials if current materials are empty (to avoid overwriting user selections)
+      if (betonMaterials.length === 0 && bekistingMaterials.length === 0 && besiMaterials.length === 0) {
+        setBetonMaterials(defaultMaterials.beton);
+        setBekistingMaterials(defaultMaterials.bekisting);
+        setBesiMaterials(defaultMaterials.besi);
+        
+        toast.success(`Material default untuk ${formData.concrete_quality} berhasil dimuat`, {
+          duration: 3000,
+        });
+      }
+    }
+  }, [formData.concrete_quality, formData.main_reinforcement, formData.stirrup_reinforcement]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -560,7 +583,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
       
       const betonProductivity = parseFloat(formData.productivity) || 0.5; // m³/hari
       const adjustedBetonProductivity = betonTeams > 0 ? betonProductivity * betonTeams : betonProductivity;
-      const betonDays = adjustedBetonProductivity > 0 ? quantities.concreteVolume / adjustedBetonProductivity : 0;
+      const betonDays = adjustedBetonProductivity > 0 ? Math.ceil(quantities.concreteVolume / adjustedBetonProductivity) : 0;
       const betonLaborCost = betonDailyLaborCost * betonDays;
 
       // Beton materials (cement, sand, gravel)
@@ -639,7 +662,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
       
       const bekistingProductivity = 10; // m²/hari
       const adjustedBekistingProductivity = bekistingTeams > 0 ? bekistingProductivity * bekistingTeams : bekistingProductivity;
-      const bekistingDays = adjustedBekistingProductivity > 0 ? quantities.formworkArea / adjustedBekistingProductivity : 0;
+      const bekistingDays = adjustedBekistingProductivity > 0 ? Math.ceil(quantities.formworkArea / adjustedBekistingProductivity) : 0;
       const bekistingLaborCost = bekistingDailyLaborCost * bekistingDays;
 
       // Bekisting materials
@@ -696,7 +719,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
       const totalReinforcementWeight = mainWeight + stirrupWeight;
 
       const adjustedBesiProductivity = besiTeams > 0 ? besiProductivity * besiTeams : besiProductivity;
-      const besiDays = adjustedBesiProductivity > 0 ? totalReinforcementWeight / adjustedBesiProductivity : 0;
+      const besiDays = adjustedBesiProductivity > 0 ? Math.ceil(totalReinforcementWeight / adjustedBesiProductivity) : 0;
       const besiLaborCost = besiDailyLaborCost * besiDays;
 
       // Besi materials
@@ -1457,6 +1480,9 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
               <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
                 <Package className="w-4 h-4 mr-2" />
                 Material Beton
+                <span className="ml-auto text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                  Default {formData.concrete_quality}
+                </span>
               </h4>
               
               {/* Selected Beton Materials */}
@@ -1516,6 +1542,9 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
               <h4 className="font-semibold text-yellow-900 mb-3 flex items-center">
                 <Package className="w-4 h-4 mr-2" />
                 Material Bekisting
+                <span className="ml-auto text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                  Default Standard
+                </span>
               </h4>
               
               {/* Selected Bekisting Materials */}
@@ -1575,6 +1604,9 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
               <h4 className="font-semibold text-green-900 mb-3 flex items-center">
                 <Package className="w-4 h-4 mr-2" />
                 Material Besi
+                <span className="ml-auto text-xs bg-green-200 text-green-800 px-2 py-1 rounded">
+                  Default {formData.main_reinforcement}/{formData.stirrup_reinforcement}
+                </span>
               </h4>
               
               {/* Selected Besi Materials */}
