@@ -517,6 +517,11 @@ export class GenericReportGenerator {
       if (this.calculation.wasteFactor) {
         costData.push(['Faktor Pemborosan', `${this.calculation.wasteFactor}%`]);
       }
+      
+      // Add Total Keseluruhan for plaster calculator
+      if (this.calculation.area && this.calculation.totals.rab) {
+        costData.push(['Total Keseluruhan (RAB × Volume)', this.formatCurrency(this.calculation.totals.rab * this.calculation.area)]);
+      }
     }
     // Other calculator structures
     else {
@@ -550,6 +555,25 @@ export class GenericReportGenerator {
       // Duration
       if (this.calculation.tukang && this.calculation.tukang.days) {
         costData.push(['Estimasi Durasi Kerja', `${Math.round(this.calculation.tukang.days)} hari`]);
+      }
+      
+      // Add Total Keseluruhan for volume/area/length calculators
+      if (this.calculation.rab) {
+        let volumeValue = 0;
+        let unit = '';
+        
+        if (this.calculation.volume) {
+          volumeValue = this.calculation.volume;
+          unit = this.calculatorType === 'volume' ? 'm³' : 
+                 this.calculatorType === 'area' ? 'm²' : 'm';
+        } else if (this.calculation.area) {
+          volumeValue = this.calculation.area;
+          unit = 'm²';
+        }
+        
+        if (volumeValue > 0) {
+          costData.push([`Total Keseluruhan (RAB × ${volumeValue} ${unit})`, this.formatCurrency(this.calculation.rab * volumeValue)]);
+        }
       }
     }
 

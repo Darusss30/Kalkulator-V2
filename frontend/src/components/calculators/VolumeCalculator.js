@@ -1608,6 +1608,33 @@ const VolumeCalculator = ({ jobType, onSave }) => {
                         {formatCurrency(calculation.rab)}
                       </td>
                     </tr>
+                    {/* Total Keseluruhan Row */}
+                    <tr className="bg-orange-50 border-t-2 border-orange-400">
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-gray-900">
+                        TOTAL KESELURUHAN
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold">
+                        {formatNumber(calculation.volume)} {calculation.satuan}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.hppBahan * calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency(calculation.rabBahan * calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.hppTukang * calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency(calculation.rabTukang * calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.hpp * calculation.volume)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.rab * calculation.volume)}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

@@ -38,13 +38,13 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
     beton_worker_ratio: '1:2',
     beton_num_tukang: '1',
     beton_num_pekerja: '2',
-    // Bekisting workers
-    bekisting_worker_ratio: '2:1',
-    bekisting_num_tukang: '2',
+    // Bekisting workers - Updated to 1:1 ratio with 1 tukang, 1 pekerja
+    bekisting_worker_ratio: '1:1',
+    bekisting_num_tukang: '1',
     bekisting_num_pekerja: '1',
-    // Besi workers
+    // Besi workers - Updated to 1:1 ratio with 1 tukang, 1 pekerja
     besi_worker_ratio: '1:1',
-    besi_num_tukang: '2',
+    besi_num_tukang: '1',
     besi_num_pekerja: '1',
     project_name: ''
   });
@@ -62,6 +62,10 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
   const [calculation, setCalculation] = useState(null);
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
+  const [previousConcreteQuality, setPreviousConcreteQuality] = useState('K225');
+  const [previousMainReinforcement, setPreviousMainReinforcement] = useState('D12');
+  const [previousStirrupReinforcement, setPreviousStirrupReinforcement] = useState('D8');
+  const [useDefaultMaterials, setUseDefaultMaterials] = useState(true);
 
   // Fixed rates as specified
   const TUKANG_RATE = 150000;
@@ -282,25 +286,97 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
 
   // Load default materials when component mounts or when concrete quality/reinforcement changes
   useEffect(() => {
-    if (formData.concrete_quality && formData.main_reinforcement && formData.stirrup_reinforcement) {
-      const defaultMaterials = getBeamDefaultMaterials(
-        formData.concrete_quality,
-        formData.main_reinforcement,
-        formData.stirrup_reinforcement
-      );
-      
-      // Only set default materials if current materials are empty (to avoid overwriting user selections)
-      if (betonMaterials.length === 0 && bekistingMaterials.length === 0 && besiMaterials.length === 0) {
-        setBetonMaterials(defaultMaterials.beton);
-        setBekistingMaterials(defaultMaterials.bekisting);
-        setBesiMaterials(defaultMaterials.besi);
-        
-        toast.success(`Material default untuk ${formData.concrete_quality} berhasil dimuat`, {
-          duration: 3000,
-        });
-      }
+    if (useDefaultMaterials) {
+      loadDefaultMaterials();
     }
-  }, [formData.concrete_quality, formData.main_reinforcement, formData.stirrup_reinforcement]);
+  }, [formData.concrete_quality, formData.main_reinforcement, formData.stirrup_reinforcement, useDefaultMaterials]);
+
+  // Function to load default materials
+  const loadDefaultMaterials = () => {
+    const defaultMaterials = getBeamDefaultMaterials(
+      formData.concrete_quality,
+      formData.main_reinforcement,
+      formData.stirrup_reinforcement
+    );
+
+    setBetonMaterials(defaultMaterials.beton);
+    setBekistingMaterials(defaultMaterials.bekisting);
+    setBesiMaterials(defaultMaterials.besi);
+
+    // Show notification about loaded materials
+    if (formData.concrete_quality !== previousConcreteQuality || 
+        formData.main_reinforcement !== previousMainReinforcement ||
+        formData.stirrup_reinforcement !== previousStirrupReinforcement) {
+      toast.success(`Material default untuk ${formData.concrete_quality} berhasil dimuat`);
+      setPreviousConcreteQuality(formData.concrete_quality);
+      setPreviousMainReinforcement(formData.main_reinforcement);
+      setPreviousStirrupReinforcement(formData.stirrup_reinforcement);
+    }
+  };
+
+  // Function to handle concrete quality change with material adjustment
+  const handleConcreteQualityChange = (newQuality) => {
+    if (useDefaultMaterials) {
+      // Update form data
+      setFormData(prev => ({ ...prev, concrete_quality: newQuality }));
+      
+      // Adjust existing materials if they exist
+      if (betonMaterials.length > 0) {
+        // Get baseline K225 ratios for comparison
+        const k225Quality = concreteQualityOptions.find(q => q.value === 'K225');
+        const k225CementRatio = k225Quality ? k225Quality.cementRatio : 7.5;
+        const k225SandRatio = k225Quality ? k225Quality.sandRatio : 0.48;
+        const k225GravelRatio = k225Quality ? k225Quality.gravelRatio : 0.58;
+        
+        // Get new quality specifications
+        const selectedConcreteQuality = concreteQualityOptions.find(q => q.value === newQuality);
+        const currentCementRatio = selectedConcreteQuality ? selectedConcreteQuality.cementRatio : 7;
+        const currentSandRatio = selectedConcreteQuality ? selectedConcreteQuality.sandRatio : 0.50;
+        const currentGravelRatio = selectedConcreteQuality ? selectedConcreteQuality.gravelRatio : 0.70;
+        
+        const adjustedBetonMaterials = betonMaterials.map(material => {
+          // Calculate adjustment factor based on material type
+          let adjustmentFactor = 1.0; // Default no adjustment
+          const materialName = material.name.toLowerCase();
+          
+          if (materialName.includes('semen')) {
+            // Adjust cement-based materials based on cement ratio change
+            adjustmentFactor = currentCementRatio / k225CementRatio;
+          } else if (materialName.includes('pasir')) {
+            // Adjust sand-based materials based on sand ratio change
+            adjustmentFactor = currentSandRatio / k225SandRatio;
+          } else if (materialName.includes('kerikil') || materialName.includes('koral') || materialName.includes('agregat')) {
+            // Adjust gravel-based materials based on gravel ratio change
+            adjustmentFactor = currentGravelRatio / k225GravelRatio;
+          }
+          
+          return {
+            ...material,
+            quantity: material.quantity_per_unit ? material.quantity_per_unit * adjustmentFactor : material.quantity * adjustmentFactor,
+            quantity_per_unit: material.quantity_per_unit ? material.quantity_per_unit * adjustmentFactor : material.quantity * adjustmentFactor
+          };
+        });
+        
+        setBetonMaterials(adjustedBetonMaterials);
+      }
+      
+      setPreviousConcreteQuality(newQuality);
+      toast.success(`Material disesuaikan untuk kualitas beton ${newQuality}`);
+    } else {
+      setFormData(prev => ({ ...prev, concrete_quality: newQuality }));
+    }
+  };
+
+  // Function to handle reinforcement change
+  const handleReinforcementChange = (name, value) => {
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    if (name === 'main_reinforcement') {
+      setPreviousMainReinforcement(value);
+    } else if (name === 'stirrup_reinforcement') {
+      setPreviousStirrupReinforcement(value);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -656,7 +732,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
       // 2. BEKISTING (Formwork)
       const bekistingTukang = parseInt(formData.bekisting_num_tukang) || 0;
       const bekistingPekerja = parseInt(formData.bekisting_num_pekerja) || 0;
-      const bekistingWorkerRatio = formData.bekisting_worker_ratio || '2:1';
+      const bekistingWorkerRatio = formData.bekisting_worker_ratio || '1:1';
       const bekistingDailyLaborCost = (bekistingTukang * TUKANG_RATE) + (bekistingPekerja * PEKERJA_RATE);
       const bekistingTeams = calculateTeams(bekistingTukang, bekistingPekerja, bekistingWorkerRatio);
       
@@ -1063,7 +1139,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                 <select
                   name="concrete_quality"
                   value={formData.concrete_quality}
-                  onChange={handleInputChange}
+                  onChange={(e) => handleConcreteQualityChange(e.target.value)}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
@@ -1073,17 +1149,6 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                     </option>
                   ))}
                 </select>
-                {formData.concrete_quality !== 'K225' && (
-                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                    <div className="flex items-center text-yellow-800">
-                      <Info className="w-3 h-3 mr-1" />
-                      <span className="font-medium">Penyesuaian Otomatis:</span>
-                    </div>
-                    <p className="text-yellow-700 mt-1">
-                      Material dari konfigurasi (basis K-225) akan disesuaikan otomatis untuk {formData.concrete_quality}
-                    </p>
-                  </div>
-                )}
               </div>
 
               <div>
@@ -1118,7 +1183,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                 <select
                   name="main_reinforcement"
                   value={formData.main_reinforcement}
-                  onChange={handleInputChange}
+                  onChange={(e) => handleReinforcementChange('main_reinforcement', e.target.value)}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
@@ -1137,7 +1202,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                 <select
                   name="stirrup_reinforcement"
                   value={formData.stirrup_reinforcement}
-                  onChange={handleInputChange}
+                  onChange={(e) => handleReinforcementChange('stirrup_reinforcement', e.target.value)}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
@@ -1382,7 +1447,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                       errors.bekisting_workers ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="2"
+                    placeholder="1"
                   />
                 </div>
                 <div>
@@ -1445,7 +1510,7 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
                       errors.besi_workers ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="2"
+                    placeholder="1"
                   />
                 </div>
                 <div>
@@ -1473,7 +1538,12 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
 
           {/* Materials Section - 3 Sub Pekerjaan */}
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-gray-900">Material per Sub Pekerjaan</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Material per Sub Pekerjaan</h3>
+              {/* Material Default is now hidden and always active */}
+            </div>
+            
+            {/* Material Default is now completely hidden - no notification needed */}
             
             {/* Beton Materials */}
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
@@ -1894,6 +1964,36 @@ const BeamCalculator = ({ jobType, onCalculationComplete }) => {
                       </td>
                       <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
                         {formatCurrency(calculation.quantities.concreteVolume > 0 ? calculation.totals.rab / calculation.quantities.concreteVolume : 0)}/m³
+                      </td>
+                    </tr>
+                    {/* Total Keseluruhan Row */}
+                    <tr className="bg-orange-50 border-t-2 border-orange-400">
+                      <td className="border border-gray-300 px-3 py-2 text-xs font-bold text-gray-900">
+                        TOTAL KESELURUHAN
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold">
+                        -
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        -
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.totals.materialCost)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency(calculation.totals.materialCost * (1 + (calculation.profitPercentage / 100)))}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.totals.laborCost)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency(calculation.totals.laborCost * (1 + (calculation.profitPercentage / 100)))}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.totals.hpp)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.totals.rab)}
                       </td>
                     </tr>
                   </tbody>

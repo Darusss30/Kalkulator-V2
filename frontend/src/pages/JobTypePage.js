@@ -142,6 +142,13 @@ const JobTypePage = () => {
       description: 'Kalkulator khusus untuk menghitung biaya pekerjaan plamiran dengan material standar per lapis (Lapis 1, 2, dan 3)',
       icon: Package,
       color: 'orange'
+    },
+    {
+      id: 'brick',
+      name: 'Kalkulator Bata',
+      description: 'Kalkulator khusus untuk menghitung biaya pemasangan bata dengan berbagai jenis (bata merah, bata putih, bata ringan) dan spesi mortar',
+      icon: Building,
+      color: 'red'
     }
   ]
   
@@ -745,6 +752,72 @@ const JobTypePage = () => {
         };
         break;
         
+      case 'brick':
+        calculatorConfig = {
+          type: 'brick',
+          redirect_url: '/brick-calculator',
+          fields: [
+            { name: 'project_name', label: 'Nama Proyek', unit: '', required: false, placeholder: 'Opsional' },
+            { name: 'area', label: 'Luas Dinding', unit: 'm²', required: true, min: 0.01, step: 0.01 },
+            { name: 'brick_type', label: 'Jenis Bata', unit: '', required: true, type: 'select', options: ['bata_merah', 'bata_putih', 'bata_ringan'], default: 'bata_merah' },
+            { name: 'mortar_ratio', label: 'Perbandingan Spesi', unit: '', required: true, type: 'select', options: ['1:3', '1:4', '1:5', '1:6'], default: '1:4' },
+            { name: 'productivity', label: 'Produktivitas', unit: 'm²/hari', required: true, min: 0.01, step: 0.01 },
+            { name: 'profit_percentage', label: 'Keuntungan', unit: '%', required: true, default: 20, min: 0, step: 0.1 },
+            { name: 'waste_factor', label: 'Faktor Pemborosan', unit: '%', required: true, default: 5, min: 0, step: 0.1 },
+            { name: 'worker_ratio', label: 'Rasio Pekerja', unit: 'tukang:pekerja', required: true, default: '1:1', type: 'select', options: ['1:0', '0:1', '1:1', '1:2', '2:1', '1:3', '3:1', '2:3', '3:2'] },
+            { name: 'num_tukang', label: 'Jumlah Tukang', unit: 'orang', required: true, default: 1, min: 0, type: 'integer' },
+            { name: 'num_pekerja', label: 'Jumlah Pekerja', unit: 'orang', required: true, default: 1, min: 0, type: 'integer' }
+          ],
+          calculation: 'brick_calculation_with_types',
+          description: 'Kalkulator bata dengan berbagai jenis (bata merah, bata putih, bata ringan) dan spesi mortar yang dapat disesuaikan',
+          features: [
+            'brick_type_selection',
+            'mortar_ratio_selection',
+            'material_database_integration',
+            'labor_calculation_with_ratio', 
+            'hpp_rab_output_detailed', 
+            'table_format_new',
+            'waste_factor_calculation',
+            'profit_margin_calculation'
+          ],
+          output_format: {
+            type: 'table',
+            columns: ['Luas', 'Satuan', 'Bahan', 'Tukang', 'HPP', 'RAB', 'Keuntungan'],
+            details: ['brick_info', 'mortar_info', 'labor_breakdown', 'material_breakdown', 'summary_cards']
+          },
+          labor_rates: {
+            tukang: 150000,
+            pekerja: 135000
+          },
+          brick_types: {
+            bata_merah: {
+              name: 'Bata Merah',
+              description: 'Bata tanah liat bakar tradisional',
+              brickSize: { length: 23, width: 11, height: 5 },
+              bricksPerM2: 60,
+              mortarThickness: 1.5,
+              materials: ['bata_merah', 'pasir_japanan', 'semen']
+            },
+            bata_putih: {
+              name: 'Bata Putih (Hebel)',
+              description: 'Bata ringan AAC (Autoclaved Aerated Concrete)',
+              brickSize: { length: 60, width: 20, height: 10 },
+              bricksPerM2: 35,
+              mortarThickness: 0.3,
+              materials: ['bata_putih', 'pasir_japanan', 'semen']
+            },
+            bata_ringan: {
+              name: 'Bata Ringan',
+              description: 'Bata ringan dengan mortar instan',
+              brickSize: { length: 60, width: 20, height: 10 },
+              bricksPerM2: 9,
+              mortarThickness: 0.3,
+              materials: ['bata_ringan', 'giant']
+            }
+          }
+        };
+        break;
+        
       default:
         calculatorConfig = null;
     }
@@ -962,6 +1035,7 @@ const JobTypePage = () => {
                                 if (config.type === 'beam') return 'bg-purple-100 text-purple-700';
                                 if (config.type === 'footplate') return 'bg-indigo-100 text-indigo-700';
                                 if (config.type === 'plaster') return 'bg-orange-100 text-orange-700';
+                                if (config.type === 'brick') return 'bg-red-100 text-red-700';
                                 return 'bg-gray-100 text-gray-700';
                               } catch {
                                 return 'bg-gray-100 text-gray-700';
@@ -976,6 +1050,7 @@ const JobTypePage = () => {
                                   if (config.type === 'beam') return 'Struktur';
                                   if (config.type === 'footplate') return 'Footplate';
                                   if (config.type === 'plaster') return 'Plamiran';
+                                  if (config.type === 'brick') return 'Bata';
                                   return 'Custom';
                                 } catch {
                                   return 'Custom';
@@ -1174,6 +1249,7 @@ const JobTypePage = () => {
                     if (config.type === 'beam') return calc.id === 'beam';
                     if (config.type === 'footplate') return calc.id === 'footplate';
                     if (config.type === 'plaster') return calc.id === 'plaster';
+                    if (config.type === 'brick') return calc.id === 'brick';
                     return null;
                   });
 
@@ -1185,7 +1261,8 @@ const JobTypePage = () => {
                     green: { bg: 'bg-green-50', border: 'border-green-200', iconBg: 'bg-green-100', iconColor: 'text-green-600', textTitle: 'text-green-900', textDesc: 'text-green-700' },
                     blue: { bg: 'bg-blue-50', border: 'border-blue-200', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', textTitle: 'text-blue-900', textDesc: 'text-blue-700' },
                     purple: { bg: 'bg-purple-50', border: 'border-purple-200', iconBg: 'bg-purple-100', iconColor: 'text-purple-600', textTitle: 'text-purple-900', textDesc: 'text-purple-700' },
-                    indigo: { bg: 'bg-indigo-50', border: 'border-indigo-200', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600', textTitle: 'text-indigo-900', textDesc: 'text-indigo-700' }
+                    indigo: { bg: 'bg-indigo-50', border: 'border-indigo-200', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600', textTitle: 'text-indigo-900', textDesc: 'text-indigo-700' },
+                    red: { bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-100', iconColor: 'text-red-600', textTitle: 'text-red-900', textDesc: 'text-red-700' }
                   };
 
                   const colors = colorClasses[currentCalculator.color];

@@ -1358,6 +1358,36 @@ const PlasterCalculator = ({ jobType, onSave }) => {
                         {formatCurrency(calculation.area > 0 ? calculation.totals.rab / calculation.area : 0)}/m²
                       </td>
                     </tr>
+                    {/* Total Keseluruhan Row */}
+                    <tr className="bg-orange-50 border-t-2 border-orange-400">
+                      <td className="border border-gray-300 px-3 py-2 text-xs font-bold text-gray-900">
+                        TOTAL KESELURUHAN
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold">
+                        {formatNumber(calculation.area)} m²
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs">
+                        -
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-700 bg-blue-100">
+                        {formatCurrency(calculation.totals.materialCost * calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-blue-800 bg-blue-200">
+                        {formatCurrency((calculation.totals.materialCost * (1 + (calculation.profitPercentage / 100))) * calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-700 bg-green-100">
+                        {formatCurrency(calculation.totals.laborCost * calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-green-800 bg-green-200">
+                        {formatCurrency((calculation.totals.laborCost * (1 + (calculation.profitPercentage / 100))) * calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-purple-800 bg-purple-200">
+                        {formatCurrency(calculation.totals.hpp * calculation.area)}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-center text-xs font-bold text-teal-800 bg-teal-200">
+                        {formatCurrency(calculation.totals.rab * calculation.area)}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

@@ -912,10 +912,6 @@ const AdminPage = () => {
             </div>
           </div>
         )}
-        
-        {/* Material Conversion Rules Modal */}
-          />
-        )}
       </div>
     </>
   );
